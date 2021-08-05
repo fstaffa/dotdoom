@@ -22,7 +22,7 @@
 (setq doom-theme 'doom-solarized-light)
 
 (setq doom-font (font-spec :family "PragmataPro Mono Liga"
-                               :size 14
+                               :size 16
                                :weight 'normal
                                :width 'normal
                                :powerline-scale 1.1))
@@ -42,17 +42,20 @@
 (setq org-archive-location "archive.org::")
 (setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
-(setq org-capture-templates
+(after! org
+  (setq org-capture-templates
         '(("t" "Todo" entry (file+headline "refile.org" "Todos")
-        "* TODO %?\n%U")
-        ("f" "Followup" entry (file+headline "refile.org" "Followup")
-        "* TODO %?\n SCHEDULED: %^t")
-        ("s" "Standup point" entry (file+headline "refile.org" "Standups")
-        "* %? :standup:")
-        ("r" "Retrospective point" entry (file+headline "refile.org" "Retrospective")
-        "* %? :retrospective:")
-        )
-)
+           "* TODO %?\n%U")
+          ("f" "Followup" entry (file+headline "refile.org" "Followup")
+           "* TODO %?\n SCHEDULED: %^t")
+          ("s" "Standup point" entry (file+headline "refile.org" "Standups")
+           "* %? :standup:")
+          ("r" "Retrospective point" entry (file+headline "refile.org" "Retrospective")
+           "* %? :retrospective:")
+          )
+        ))
+
+
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
