@@ -30,13 +30,17 @@
 ;; start fullscreen
 (add-to-list 'initial-frame-alist '(fullscreen . maximized))
 
+;;
+(setq confirm-kill-emacs nil)
+
 
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
-(setq org-roam-directory "c:/data/org-mode/roam")
+(setq org-roam-directory "/mnt/c/Users/Filip/org-mode/roam")
 (setq org-roam-graph-executable "C:/Program Files/Graphviz/bin/dot.exe")
-(setq org-directory "c:/data/org-mode/org")
+(setq org-directory "/mnt/c/Users/Filip/org-mode/org")
 
+(setq x-selection-timeout 10)
 (setq org-agenda-files (list org-directory))
 (setq org-default-notes-file "refile.org")
 (setq org-archive-location "archive.org::")
