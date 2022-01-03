@@ -36,9 +36,9 @@
 
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
-(setq org-roam-directory "/mnt/c/Users/Filip/org-mode/roam")
+(setq org-roam-directory "~/data/org-mode/roam")
 (setq org-roam-graph-executable "C:/Program Files/Graphviz/bin/dot.exe")
-(setq org-directory "/mnt/c/Users/Filip/org-mode/org")
+(setq org-directory "~/data/org-mode/org")
 
 (setq x-selection-timeout 10)
 (setq org-agenda-files (list org-directory))
@@ -59,6 +59,8 @@
           )
         ))
 
+
+(setq projectile-project-search-path '("~/data/cimpress/" "~/data/personal/"))
 
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
@@ -90,3 +92,33 @@
 
 (after! key-chord
   (key-chord-define evil-insert-state-map "fd" 'evil-normal-state))
+
+(defun exercism-tests ()
+  (interactive)
+  (let* ((current-file (buffer-name))
+         (implementation-file (string-replace "-test" "" current-file))
+         (test-file (string-replace ".el" "-test.el" implementation-file)))
+    (message "%s" test-file )
+    (save-buffer)
+    (eval-buffer implementation-file)
+    (eval-buffer test-file)
+    )
+  (lispy-ert))
+
+(use-package! kubernetes
+  :defer t
+  :config
+  (setq kubernetes-poll-frequency 3600
+        kubernetes-redraw-frequency 3600))
+
+(use-package! kubernetes-evil
+  :after kubernetes-overview)
+
+(prodigy-define-service
+  :name "CCM Production database"
+  :command "ssh"
+  :args '("rds-planning-ccm-prd" "-v")
+  :port 15432
+  )
+
+(setenv "NVM_DIR" "~/.local/share/nvm")

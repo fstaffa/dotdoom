@@ -50,3 +50,7 @@
 ;(unpin! t)
 
 (package! key-chord)
+(package! jq-mode)
+(package! kubernetes)
+(package! kubernetes-evil)
+(package! nvm :pin "c214762")
