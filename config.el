@@ -93,6 +93,9 @@
 (after! key-chord
   (key-chord-define evil-insert-state-map "fd" 'evil-normal-state))
 
+(after! key-chord
+  (key-chord-define evil-insert-state-map "fs" 'save-buffer))
+
 (defun exercism-tests ()
   (interactive)
   (let* ((current-file (buffer-name))
@@ -122,3 +125,7 @@
   )
 
 (setenv "NVM_DIR" "~/.local/share/nvm")
+
+(setq evil-snipe-override-evil-repeat-keys nil)
+(setq doom-localleader-key ",")
+(setq doom-localleader-alt-key "M-,")
