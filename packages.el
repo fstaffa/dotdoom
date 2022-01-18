@@ -54,3 +54,6 @@
 (package! kubernetes)
 (package! kubernetes-evil)
 (package! nvm :pin "c214762")
+
+(package! graphviz-dot-mode)
+(package! company-graphviz-dot :recipe (:host github :repo "ppareit/graphviz-dot-mode"))

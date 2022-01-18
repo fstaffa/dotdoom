@@ -47,6 +47,7 @@
 (setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
 (after! org
+  (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
   (setq org-capture-templates
         '(("t" "Todo" entry (file+headline "refile.org" "Todos")
            "* TODO %?\n%U")
@@ -129,3 +130,7 @@
 (setq evil-snipe-override-evil-repeat-keys nil)
 (setq doom-localleader-key ",")
 (setq doom-localleader-alt-key "M-,")
+
+(use-package! graphviz-dot-mode
+  :ensure t)
+(use-package! company-graphviz-dot)
