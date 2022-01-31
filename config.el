@@ -60,9 +60,10 @@
           )
         ))
 
-
-(setq projectile-project-search-path '("~/data/cimpress/" "~/data/personal/"))
-
+(let* ((git-project-paths '("~/data/cimpress/" "~/data/personal/"))
+       (magit-dirs (seq-map (lambda (folder) (cons folder 1)) git-project-paths)))
+  (setq projectile-project-search-path git-project-paths)
+  (setq magit-repository-directories magit-dirs))
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
