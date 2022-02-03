@@ -65,6 +65,17 @@
   (setq projectile-project-search-path git-project-paths)
   (setq magit-repository-directories magit-dirs))
 
+(defun my-git-commit-message ()
+  (let ((ISSUEKEY "[[:upper:]]+-[[:digit:]]+"))
+    (when (string-match-p ISSUEKEY (magit-get-current-branch))
+      (insert
+       (replace-regexp-in-string
+        (concat ".*?\\(" ISSUEKEY "\\).*")
+        "\\1 "
+        (magit-get-current-branch))))))
+
+(add-hook 'git-commit-setup-hook 'my-git-commit-message)
+
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
 (setq display-line-numbers-type t)
@@ -124,6 +135,14 @@
   :command "ssh"
   :args '("rds-planning-ccm-prd" "-v")
   :port 15432
+  )
+
+(prodigy-define-service
+  :name "CCM local db"
+  :command "docker "
+  :path '("/usr/bin")
+  :args '("run"  "--name" "ccm-postgresql-db" "-p" "5432:5432" "-e" "POSTGRES_PASSWORD=postgres" "-d" "postgres")
+  :port 5432
   )
 
 (setenv "NVM_DIR" "~/.local/share/nvm")
