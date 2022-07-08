@@ -58,3 +58,5 @@
 (package! graphviz-dot-mode)
 (package! company-graphviz-dot :recipe (:host github :repo "ppareit/graphviz-dot-mode"))
 (package! earthfile-mode)
+(package! prettier)
+(package! f)

@@ -1,3 +1,49 @@
+(use-package! f :ensure t)
+;; holidays
+(setq holiday-bahai-holidays nil)
+(setq holiday-general-holidays nil)
+(setq holiday-christian-holidays nil)
+(setq holiday-hebrew-holidays nil)
+(setq holiday-oriental-holidays nil)
+(setq holiday-islamic-holidays nil)
+(defvar czech-holidays-list
+  '((holiday-fixed 1 1 "Den obnovy samostatného českého státu; Nový rok")
+    (holiday-easter-etc -2 "Velký pátek")
+    (holiday-easter-etc 1 "Velikonoční Pondělí")
+    (holiday-fixed 5 1 "Svátek práce")
+    (holiday-fixed 5 8 "Den vítězství")
+    (holiday-fixed 7 5 "Den slovanských věrozvěstů Cyrila a Metoděje")
+    (holiday-fixed 7 6 "Den upálení mistra Jana Husa")
+    (holiday-fixed 9 28 "Den české státnosti")
+    (holiday-fixed 10 28 "Den vzniku samostatného československého státu")
+    (holiday-fixed 11 17 "Den boje za svobodu a demokracii")
+    (holiday-fixed 12 24 "Štědrý den")
+    (holiday-fixed 12 25 "svátek vánoční")
+    (holiday-fixed 12 26 "svátek vánoční"))
+  "List of Czech public holidays.")
+(defvar dutch-holidays-list
+  '((holiday-fixed 1 1 "New Year’s Day / Nieuwjaarsdag")
+    (holiday-easter-etc -2 "Good Friday / Goede Vrijdag")
+    (holiday-easter-etc 1 "Easter Monday / Tweede Paasdag")
+    (holiday-sexp
+     '(if (zerop (calendar-day-of-week (list 4 27 year)))
+          (list 4 26 year)
+        (list 4 27 year))
+     "Koningsdag")
+    (holiday-sexp '(if (= 0 (% year 5))) "Liberation Day / Bevrijdingsdag")
+    (holiday-easter-etc +39 "Ascension Day / Hemelvaart")
+    (holiday-easter-etc +49 "Whit (Pentecost) Sunday / Eerste Pinksterdag")
+    (holiday-easter-etc +50 "Whit (Pentecost) Monday / Tweede Pinksterdag")
+    (holiday-fixed 12 25 "Christmas Day / Eerste Kerstdag")
+    (holiday-fixed 12 26 "Boxing Day / Tweede Kerstdag")
+    )
+  "List of Dutch public holidays.")
+
+(setq holiday-other-holidays (append czech-holidays-list dutch-holidays-list))
+
+
+
+
 ;; Some functionality uses this to identify you, e.g. GPG configuration, email
 ;; clients, file templates and snippets.
 (setq user-full-name "John Doe"
@@ -22,10 +68,10 @@
 (setq doom-theme 'doom-solarized-light)
 
 (setq doom-font (font-spec :family "PragmataPro Mono Liga"
-                               :size 16
-                               :weight 'normal
-                               :width 'normal
-                               :powerline-scale 1.1))
+                           :size 16
+                           :weight 'normal
+                           :width 'normal
+                           :powerline-scale 1.1))
 
 ;; start fullscreen
 (add-to-list 'initial-frame-alist '(fullscreen . maximized))
@@ -37,10 +83,11 @@
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
 (setq org-roam-directory "~/data/org-mode/roam")
-(setq org-roam-graph-executable "C:/Program Files/Graphviz/bin/dot.exe")
+(setq org-roam-dailies-directory (f-join org-roam-directory "daily"))
 (setq org-directory "~/data/org-mode/org")
 
 (setq x-selection-timeout 10)
+(setq org-agenda-include-diary t)
 (setq org-agenda-files (list org-directory))
 (setq org-default-notes-file "refile.org")
 (setq org-archive-location "archive.org::")
@@ -57,7 +104,14 @@
            "* %? :standup:")
           ("r" "Retrospective point" entry (file+headline "refile.org" "Retrospective")
            "* %? :retrospective:")
+          ("d" "Daily today" entry (file+olp+datetree "daily.org") "* %?" :time-prompt t)
           )
+        ))
+(setq org-agenda-custom-commands
+      '(("h" "Agenda and Home-related tasks"
+         ((agenda "")
+          (tags "standup")
+          (tags "retrospective")))
         ))
 
 (let* ((git-project-paths '("~/data/cimpress/" "~/data/personal/"))
@@ -146,6 +200,7 @@
   )
 
 (setenv "NVM_DIR" "~/.local/share/nvm")
+(add-hook 'after-init-hook #'global-prettier-mode)
 
 (setq evil-snipe-override-evil-repeat-keys nil)
 (setq doom-localleader-key ",")
