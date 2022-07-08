@@ -200,7 +200,6 @@
   )
 
 (setenv "NVM_DIR" "~/.local/share/nvm")
-(add-hook 'after-init-hook #'global-prettier-mode)
 
 (setq evil-snipe-override-evil-repeat-keys nil)
 (setq doom-localleader-key ",")
