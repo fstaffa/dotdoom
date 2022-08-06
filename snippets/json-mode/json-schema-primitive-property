@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: json schema property for primitive type
+# key: spp
+# --
+
+"$1": { "type": "${2:$$(yas-choose-value '("integer" "number" "string" "boolean"))}" }$0

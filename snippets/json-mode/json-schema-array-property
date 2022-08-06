@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: property with array type
+# key: spa
+# --
+
+"$1": { "type": "array", "items": $2 }

@@ -1,0 +1,6 @@
+# -*- mode: snippet -*-
+# name: json schema property object
+# key: spo
+# --
+
+"$1": { "type": "object", "properties": {$0} }
