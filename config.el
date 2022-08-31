@@ -94,17 +94,22 @@
 (setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
 (after! org
+  (setq org-log-done 'time)
   (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
   (setq org-capture-templates
-        '(("t" "Todo" entry (file+headline "refile.org" "Todos")
-           "* TODO %?\n%U")
-          ("f" "Followup" entry (file+headline "refile.org" "Followup")
+        '(("f" "Followup" entry (file+headline "refile.org" "Followup")
            "* TODO %?\n SCHEDULED: %^t")
+          ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
+           "* TODO %?\n SCHEDULED: %t")
+          ("w" "This Week" entry (file+headline "refile.org" "This Week")
+           "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))")
           ("s" "Standup point" entry (file+headline "refile.org" "Standups")
            "* %? :standup:")
           ("r" "Retrospective point" entry (file+headline "refile.org" "Retrospective")
            "* %? :retrospective:")
           ("d" "Daily today" entry (file+olp+datetree "daily.org") "* %?" :time-prompt t)
+          ("p" "Person")
+          ("pa" "Adam next" entry (file+headline "adam.org" "next") "* %?" :time-prompt t)
           )
         ))
 (setq org-agenda-custom-commands
@@ -208,3 +213,47 @@
 (use-package! graphviz-dot-mode
   :ensure t)
 (use-package! company-graphviz-dot)
+
+;; (setq org-super-agenda-header-map evil-org-agenda-mode-map)
+(use-package! org-super-agenda
+  :after org-agenda
+  :init
+  (setq org-agenda-skip-scheduled-if-done t
+        org-agenda-skip-deadline-if-done t
+        org-agenda-include-deadlines t
+        org-agenda-block-separator nil
+        org-agenda-compact-blocks t
+        org-agenda-start-day nil ;; i.e. today
+        org-agenda-span 1
+        org-agenda-start-on-weekday nil
+        org-super-agenda-header-map (make-sparse-keymap))
+
+  (setq org-agenda-custom-commands
+        '(("c" "Super view"
+           ((agenda "" ((org-agenda-overriding-header "")
+                        (org-super-agenda-groups
+                         '((:name "Today"
+                                  :time-grid t
+                                  :date today
+                                  :order 1)))))
+            (alltodo "" ((org-agenda-overriding-header "")
+                         (org-super-agenda-groups
+                          '((:log t)
+                            (:name "To refile"
+                                   :file-path "refile\\.org")
+                            (:name "Standup"
+                                    :tag "standup")
+                            (:name "Today's tasks"
+                                   :file-path "journal/")
+                            (:name "Due Today"
+                                   :deadline today
+                                   :order 2)
+                            (:name "Scheduled Soon"
+                                   :scheduled future
+                                   :order 8)
+                            (:name "Overdue"
+                                   :deadline past
+                                   :order 7)
+                            (:discard (:not (:todo "TODO")))))))))))
+  :config
+  (org-super-agenda-mode))

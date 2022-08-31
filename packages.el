@@ -60,3 +60,4 @@
 (package! earthfile-mode)
 (package! f)
 (package! format-all)
+(package! org-super-agenda)
