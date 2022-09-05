@@ -93,11 +93,16 @@
 (setq org-archive-location "archive.org::")
 (setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
+(defun my/person-template (shortcut name)
+                      (let* ((uppercase-name (capitalize name))
+                            (filename (concat name ".org"))
+                            (label (concat uppercase-name " next")))
+                        `(,shortcut ,label entry (file+headline ,filename "next") "* %?" :time-prompt t)))
 (after! org
   (setq org-log-done 'time)
   (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
   (setq org-capture-templates
-        '(("f" "Followup" entry (file+headline "refile.org" "Followup")
+        `(("f" "Followup" entry (file+headline "refile.org" "Followup")
            "* TODO %?\n SCHEDULED: %^t")
           ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
            "* TODO %?\n SCHEDULED: %t")
@@ -109,7 +114,12 @@
            "* %? :retrospective:")
           ("d" "Daily today" entry (file+olp+datetree "daily.org") "* %?" :time-prompt t)
           ("p" "Person")
-          ("pa" "Adam next" entry (file+headline "adam.org" "next") "* %?" :time-prompt t)
+          ,(my/person-template "pa" "adam")
+          ,(my/person-template "pd" "denis")
+          ,(my/person-template "pg" "grand")
+          ,(my/person-template "pk" "ksenia")
+          ,(my/person-template "pm" "michal")
+          ,(my/person-template "ps" "stepan")
           )
         ))
 (setq org-agenda-custom-commands
@@ -132,6 +142,15 @@
         (concat ".*?\\(" ISSUEKEY "\\).*")
         "\\1 "
         (magit-get-current-branch))))))
+
+(defun my-magit-fetch-all-repositories ()
+  "Run `magit-fetch-all' in all repositories returned by `magit-list-repos`."
+  (interactive)
+  (dolist (repo (magit-list-repos))
+    (message "Fetching in %s..." repo)
+    (let ((default-directory repo))
+      (magit-fetch-all (magit-fetch-arguments)))
+    (message "Fetching in %s...done" repo)))
 
 (add-hook 'git-commit-setup-hook 'my-git-commit-message)
 
@@ -156,6 +175,8 @@
 ;;
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
+
+(map! :leader :desc "prodigy" "o p" #'prodigy)
 (use-package! key-chord
   :config
   (key-chord-mode 1)
@@ -198,9 +219,8 @@
 
 (prodigy-define-service
   :name "CCM local db"
-  :command "docker "
-  :path '("/usr/bin")
-  :args '("run"  "--name" "ccm-postgresql-db" "-p" "5432:5432" "-e" "POSTGRES_PASSWORD=postgres" "-d" "postgres")
+  :command "podman"
+  :args '("run" "-p" "5432:5432" "-e" "POSTGRES_PASSWORD=postgres" "postgres")
   :port 5432
   )
 
