@@ -86,6 +86,9 @@
 (setq org-roam-dailies-directory (f-join org-roam-directory "daily"))
 (setq org-directory "~/data/org-mode/org")
 
+;; save buffers after 30 sec of inactivity to prevent conflicts - https://emacs.stackexchange.com/questions/477/how-do-i-automatically-save-org-mode-buffers
+(add-hook 'auto-save-hook 'org-save-all-org-buffers)
+
 (setq x-selection-timeout 10)
 (setq org-agenda-include-diary t)
 (setq org-agenda-files (list org-directory))
@@ -277,3 +280,8 @@
                             (:discard (:not (:todo "TODO")))))))))))
   :config
   (org-super-agenda-mode))
+
+(setq +format-with-lsp nil)
+
+(after! (:and flycheck lsp)
+   (flycheck-add-next-checker 'sh-shellcheck 'lsp))

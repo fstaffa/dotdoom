@@ -59,5 +59,4 @@
 (package! company-graphviz-dot :recipe (:host github :repo "ppareit/graphviz-dot-mode"))
 (package! earthfile-mode)
 (package! f)
-(package! format-all)
 (package! org-super-agenda)
