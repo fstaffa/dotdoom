@@ -179,6 +179,8 @@
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
 
+(map! :leader "w s" #'switch-to-buffer-other-window)
+
 (map! :leader :desc "prodigy" "o p" #'prodigy)
 (use-package! key-chord
   :config
@@ -282,6 +284,8 @@
   (org-super-agenda-mode))
 
 (setq +format-with-lsp nil)
+
+
 
 
 ;; fix for lsp
