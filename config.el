@@ -286,7 +286,7 @@
 (setq +format-with-lsp nil)
 
 
-
+(setq lsp-csharp-server-path "OmniSharp")
 
 ;; fix for lsp
 (defvar-local my/flycheck-local-cache nil)

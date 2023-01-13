@@ -49,6 +49,7 @@
 ;; ...Or *all* packages (NOT RECOMMENDED; will likely break things)
 ;(unpin! t)
 
+(package! lsp-mode :pin "9d03a15c66cf712cc5391219d8ad8f9b2a7f4351")
 (package! key-chord)
 (package! jq-mode)
 (package! kubernetes)
