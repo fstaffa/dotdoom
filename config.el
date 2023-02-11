@@ -237,7 +237,6 @@
 
 (use-package! graphviz-dot-mode
   :ensure t)
-(use-package! company-graphviz-dot)
 
 ;; (setq org-super-agenda-header-map evil-org-agenda-mode-map)
 (use-package! org-super-agenda
@@ -301,3 +300,13 @@
           (lambda ()
             (when (derived-mode-p 'sh-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (sh-shellcheck)))))))))
+
+(setq jiralib-url "https://cimpress-support.atlassian.net")
+
+;; https://github.com/doomemacs/doomemacs/pull/3021/files
+(use-package! magit-delta
+  :after magit
+  :config (setq
+   magit-delta-default-dark-theme "Solarized (dark)"
+   magit-delta-default-light-theme "Solarized (light)")
+  :hook (magit-mode . magit-delta-mode))

@@ -57,7 +57,9 @@
 (package! nvm :pin "c214762")
 
 (package! graphviz-dot-mode)
-(package! company-graphviz-dot :recipe (:host github :repo "ppareit/graphviz-dot-mode"))
 (package! earthfile-mode)
 (package! f)
 (package! org-super-agenda)
+(package! org-jira)
+
+(package! magit-delta)
