@@ -125,6 +125,18 @@
           ,(my/person-template "ps" "stepan")
           )
         ))
+
+;; fix org-capture-mode not starting correctly after org agenda https://github.com/doomemacs/doomemacs/issues/5714
+(after! org
+  (defadvice! personal/+org--restart-mode-h-careful-restart (fn &rest args)
+    :around #'+org--restart-mode-h
+    (let ((old-org-capture-current-plist (and (bound-and-true-p org-capture-mode)
+                                              (bound-and-true-p org-capture-current-plist))))
+      (apply fn args)
+      (when old-org-capture-current-plist
+        (setq-local org-capture-current-plist old-org-capture-current-plist)
+        (org-capture-mode +1)))))
+
 (setq org-agenda-custom-commands
       '(("h" "Agenda and Home-related tasks"
          ((agenda "")
@@ -146,14 +158,22 @@
         "\\1 "
         (magit-get-current-branch))))))
 
-(defun my-magit-fetch-all-repositories ()
-  "Run `magit-fetch-all' in all repositories returned by `magit-list-repos`."
+(defun personal/magit-repolist-fetch ()
+  "Fetch all remotes in repositories returned by `magit-list-repos'.
+Fetching is done synchronously."
   (interactive)
-  (dolist (repo (magit-list-repos))
-    (message "Fetching in %s..." repo)
-    (let ((default-directory repo))
-      (magit-fetch-all (magit-fetch-arguments)))
-    (message "Fetching in %s...done" repo)))
+  (run-hooks 'magit-credential-hook)
+  (let* ((repos (magit-list-repos))
+         (l (length repos))
+         (i 0))
+    (dolist (repo repos)
+      (let* ((default-directory (file-name-as-directory repo))
+             (msg (format "(%s/%s) Fetching in %s..."
+                          (cl-incf i) l default-directory)))
+        (message msg)
+        (magit-run-git "remote" "update" (magit-fetch-arguments))
+        (message (concat msg "done")))))
+  (magit-refresh))
 
 (add-hook 'git-commit-setup-hook 'my-git-commit-message)
 
@@ -181,7 +201,6 @@
 
 (map! :leader "w s" #'switch-to-buffer-other-window)
 
-(map! :leader :desc "prodigy" "o p" #'prodigy)
 (use-package! key-chord
   :config
   (key-chord-mode 1)
@@ -215,19 +234,21 @@
 (use-package! kubernetes-evil
   :after kubernetes-overview)
 
-(prodigy-define-service
-  :name "CCM Production database"
-  :command "ssh"
-  :args '("rds-planning-ccm-prd" "-v")
-  :port 15432
-  )
+(map! :leader :desc "prodigy" "o p" #'prodigy)
 
-(prodigy-define-service
-  :name "CCM local db"
-  :command "podman"
-  :args '("run" "-p" "5432:5432" "-e" "POSTGRES_PASSWORD=postgres" "postgres")
-  :port 5432
-  )
+(dolist (account '("logisticsquotingplanning" "praguematic"))
+  (prodigy-define-service
+    :name (concat "AWS " account)
+    :command "stskeygen"
+    :args (list "--account" account "--profile" account "--admin" "--duration" "43200")
+    ))
+
+(dolist (db-host '("rds-planning-ccm-prd" "rds-planning-ccm-stg"
+                   "rds-planning-shipcalc-prd" "rds-planning-shipcalc-stg"))
+        (prodigy-define-service
+        :name db-host
+        :command "ssh"
+        :args (list db-host "-v")))
 
 (setenv "NVM_DIR" "~/.local/share/nvm")
 
@@ -310,3 +331,33 @@
    magit-delta-default-dark-theme "Solarized (dark)"
    magit-delta-default-light-theme "Solarized (light)")
   :hook (magit-mode . magit-delta-mode))
+
+(setq personal/remaining-sync-conflicts ())
+(setq personal/last-solved-conflict nil)
+
+(defun personal/solve-org-sync-conflicts ()
+  "Runs ediff on all sync conflicts in org-directory"
+  (interactive)
+  (let ((files (seq-filter (lambda (x) (string-match-p "sync-conflict" x)) (directory-files org-directory 'full))))
+    (progn (setq personal/remaining-sync-conflicts files)
+        (add-hook 'ediff-after-quit-hook-internal 'personal/solve-org-sync-conflicts-hook)
+        (personal/solve-org-sync-conflicts-hook))
+    ))
+
+(defun personal/solve-org-sync-conflicts-hook ()
+  (progn
+    (if personal/last-solved-conflict
+        (let ((file personal/last-solved-conflict))
+          (if (string-equal (read-string (format "Do you want to delete file %s: " file) "yes") "yes")
+              (progn
+                (delete-file file)
+                (setq personal/last-solved-conflict nil)))))
+    (if (not personal/remaining-sync-conflicts)
+        (progn (remove-hook 'ediff-after-quit-hook-internal 'personal/solve-org-sync-conflicts-hook)
+               (message "done"))
+      (let* ((file (car personal/remaining-sync-conflicts))
+             (original-file (replace-regexp-in-string "\.sync-conflict[^.]*" "" file)))
+        (progn
+          (setq personal/remaining-sync-conflicts (cdr personal/remaining-sync-conflicts))
+          (setq personal/last-solved-conflict file)
+          (ediff-files file original-file))))))
