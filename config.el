@@ -244,7 +244,7 @@ Fetching is done synchronously."
     ))
 
 (dolist (db-host '("rds-planning-ccm-prd" "rds-planning-ccm-stg"
-                   "rds-planning-shipcalc-prd" "rds-planning-shipcalc-stg"))
+                   "rds-planning-shipping-calculator-prd" "rds-planning-shipping-calculator-stg"))
         (prodigy-define-service
         :name db-host
         :command "ssh"
