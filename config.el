@@ -361,3 +361,16 @@ Fetching is done synchronously."
           (setq personal/remaining-sync-conflicts (cdr personal/remaining-sync-conflicts))
           (setq personal/last-solved-conflict file)
           (ediff-files file original-file))))))
+
+(defun personal/chat-mode ()
+  (visual-line-mode 1))
+
+(use-package! chat
+  :after-call (personal/chat)
+  :config (setq chat-api-key (funcall (plist-get (car (auth-source-search :host "api.openai.com" :require '(:secret) :max 1)) :secret)))
+  :hook (('chat-mode-hook . #'personal/chat-mode))
+  )
+
+(defun personal/chat ()
+  (interactive)
+  (chat))
