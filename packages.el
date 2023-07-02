@@ -63,3 +63,5 @@
 
 (package! magit-delta)
 (package! chat :recipe (:host github :repo "iwahbe/chat.el") )
+
+(unpin! lsp-mode)

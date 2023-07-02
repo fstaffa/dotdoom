@@ -322,6 +322,9 @@ Fetching is done synchronously."
             (when (derived-mode-p 'sh-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (sh-shellcheck)))))))))
 
+(use-package! lsp-mode
+  :hook ((tsx-ts-mode . lsp) (typescript-ts-mode .lsp)))
+
 (setq jiralib-url "https://cimpress-support.atlassian.net")
 
 ;; https://github.com/doomemacs/doomemacs/pull/3021/files
@@ -374,3 +377,14 @@ Fetching is done synchronously."
 (defun personal/chat ()
   (interactive)
   (chat))
+
+
+(defun personal/run-tests ()
+         (eval-buffer)
+         (ert t)
+         (other-window 1))
+
+(add-hook 'after-save-hook 'my/run-tests nil t)
+
+(defun personal/setup-tests () (interactive)
+       (add-hook 'after-save-hook 'personal/run-tests nil t))
