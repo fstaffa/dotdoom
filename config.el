@@ -236,7 +236,7 @@ Fetching is done synchronously."
 
 (map! :leader :desc "prodigy" "o p" #'prodigy)
 
-(dolist (account '("logisticsquotingplanning" "praguematic"))
+(dolist (account '("logisticsquotingplanning" "praguematic" "sapidus"))
   (prodigy-define-service
     :name (concat "AWS " account)
     :command "stskeygen"
