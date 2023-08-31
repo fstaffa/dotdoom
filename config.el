@@ -250,6 +250,16 @@ Fetching is done synchronously."
         :command "ssh"
         :args (list db-host "-v")))
 
+(dolist (environment '("production" "staging"))
+  (let ((path "~/data/cimpress/ccm/"))
+    (prodigy-define-service
+      :name (concat "CCM " environment)
+      :command "bash"
+      :cwd path
+      :args (list "run.sh" environment)
+      )))
+
+
 (setenv "NVM_DIR" "~/.local/share/nvm")
 
 (setq evil-snipe-override-evil-repeat-keys nil)
@@ -322,9 +332,6 @@ Fetching is done synchronously."
             (when (derived-mode-p 'sh-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (sh-shellcheck)))))))))
 
-(use-package! lsp-mode
-  :hook ((tsx-ts-mode . lsp) (typescript-ts-mode .lsp)))
-
 (setq jiralib-url "https://cimpress-support.atlassian.net")
 
 ;; https://github.com/doomemacs/doomemacs/pull/3021/files
@@ -368,11 +375,10 @@ Fetching is done synchronously."
 (defun personal/chat-mode ()
   (visual-line-mode 1))
 
-(use-package! chat
-  :after-call (personal/chat)
-  :config (setq chat-api-key (funcall (plist-get (car (auth-source-search :host "api.openai.com" :require '(:secret) :max 1)) :secret)))
-  :hook (('chat-mode-hook . #'personal/chat-mode))
-  )
+(use-package! chatgpt-shell
+  :config (setq chatgpt-shell-openai-key
+      (lambda ()
+        (auth-source-pick-first-password :host "api.openai.com"))))
 
 (defun personal/chat ()
   (interactive)

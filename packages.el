@@ -62,6 +62,7 @@
 (package! org-jira)
 
 (package! magit-delta)
-(package! chat :recipe (:host github :repo "iwahbe/chat.el") )
+
+(package! chatgpt-shell)
 
 (unpin! lsp-mode)
