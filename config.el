@@ -394,3 +394,5 @@ Fetching is done synchronously."
 
 (defun personal/setup-tests () (interactive)
        (add-hook 'after-save-hook 'personal/run-tests nil t))
+
+(use-package! exercism )

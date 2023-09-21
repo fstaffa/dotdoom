@@ -66,3 +66,5 @@
 (package! chatgpt-shell)
 
 (unpin! lsp-mode)
+
+(package! exercism)
