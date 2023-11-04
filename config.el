@@ -97,10 +97,10 @@
 (setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
 (defun my/person-template (shortcut name)
-                      (let* ((uppercase-name (capitalize name))
-                            (filename (concat name ".org"))
-                            (label (concat uppercase-name " next")))
-                        `(,shortcut ,label entry (file+headline ,filename "next") "* %?" :time-prompt t)))
+  (let* ((uppercase-name (capitalize name))
+         (filename (concat name ".org"))
+         (label (concat uppercase-name " next")))
+    `(,shortcut ,label entry (file+headline ,filename "next") "* %?" :time-prompt t)))
 (after! org
   (setq org-log-done 'time)
   (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
@@ -245,10 +245,10 @@ Fetching is done synchronously."
 
 (dolist (db-host '("rds-planning-ccm-prd" "rds-planning-ccm-stg"
                    "rds-planning-shipping-calculator-prd" "rds-planning-shipping-calculator-stg"))
-        (prodigy-define-service
-        :name db-host
-        :command "ssh"
-        :args (list db-host "-v")))
+  (prodigy-define-service
+    :name db-host
+    :command "ssh"
+    :args (list db-host "-v")))
 
 (dolist (environment '("production" "staging"))
   (let ((path "~/data/cimpress/ccm/"))
@@ -288,27 +288,27 @@ Fetching is done synchronously."
            ((agenda "" ((org-agenda-overriding-header "")
                         (org-super-agenda-groups
                          '((:name "Today"
-                                  :time-grid t
-                                  :date today
-                                  :order 1)))))
+                            :time-grid t
+                            :date today
+                            :order 1)))))
             (alltodo "" ((org-agenda-overriding-header "")
                          (org-super-agenda-groups
                           '((:log t)
                             (:name "To refile"
-                                   :file-path "refile\\.org")
+                             :file-path "refile\\.org")
                             (:name "Standup"
-                                    :tag "standup")
+                             :tag "standup")
                             (:name "Today's tasks"
-                                   :file-path "journal/")
+                             :file-path "journal/")
                             (:name "Due Today"
-                                   :deadline today
-                                   :order 2)
+                             :deadline today
+                             :order 2)
                             (:name "Scheduled Soon"
-                                   :scheduled future
-                                   :order 8)
+                             :scheduled future
+                             :order 8)
                             (:name "Overdue"
-                                   :deadline past
-                                   :order 7)
+                             :deadline past
+                             :order 7)
                             (:discard (:not (:todo "TODO")))))))))))
   :config
   (org-super-agenda-mode))
@@ -338,8 +338,8 @@ Fetching is done synchronously."
 (use-package! magit-delta
   :after magit
   :config (setq
-   magit-delta-default-dark-theme "Solarized (dark)"
-   magit-delta-default-light-theme "Solarized (light)")
+           magit-delta-default-dark-theme "Solarized (dark)"
+           magit-delta-default-light-theme "Solarized (light)")
   :hook (magit-mode . magit-delta-mode))
 
 (setq personal/remaining-sync-conflicts ())
@@ -350,8 +350,8 @@ Fetching is done synchronously."
   (interactive)
   (let ((files (seq-filter (lambda (x) (string-match-p "sync-conflict" x)) (directory-files org-directory 'full))))
     (progn (setq personal/remaining-sync-conflicts files)
-        (add-hook 'ediff-after-quit-hook-internal 'personal/solve-org-sync-conflicts-hook)
-        (personal/solve-org-sync-conflicts-hook))
+           (add-hook 'ediff-after-quit-hook-internal 'personal/solve-org-sync-conflicts-hook)
+           (personal/solve-org-sync-conflicts-hook))
     ))
 
 (defun personal/solve-org-sync-conflicts-hook ()
@@ -377,8 +377,8 @@ Fetching is done synchronously."
 
 (use-package! chatgpt-shell
   :config (setq chatgpt-shell-openai-key
-      (lambda ()
-        (auth-source-pick-first-password :host "api.openai.com"))))
+                (lambda ()
+                  (auth-source-pick-first-password :host "api.openai.com"))))
 
 (defun personal/chat ()
   (interactive)
@@ -386,13 +386,20 @@ Fetching is done synchronously."
 
 
 (defun personal/run-tests ()
-         (eval-buffer)
-         (ert t)
-         (other-window 1))
+  (eval-buffer)
+  (ert t)
+  (other-window 1))
 
 (add-hook 'after-save-hook 'my/run-tests nil t)
 
 (defun personal/setup-tests () (interactive)
        (add-hook 'after-save-hook 'personal/run-tests nil t))
+
+(defun personal/gpg-check () (interactive)
+       (let ((output-buffer "*GPG Encryption Test*"))
+         (if (zerop (shell-command "echo \"test\" | gpg --clearsign" output-buffer))
+             (progn
+               (message "GPG check successful")
+               (kill-buffer output-buffer)))))
 
 (use-package! exercism )
