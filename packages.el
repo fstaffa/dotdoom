@@ -68,3 +68,6 @@
 (unpin! lsp-mode)
 
 (package! exercism)
+(package! lab
+  :recipe (:host github :repo "isamert/lab.el")
+  :pin "9f0f738c46712f5365d9d75c37ce6d1f8b6e9ba7")

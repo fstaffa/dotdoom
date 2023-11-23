@@ -380,6 +380,22 @@ Fetching is done synchronously."
                 (lambda ()
                   (auth-source-pick-first-password :host "api.openai.com"))))
 
+(defun personal/gitlab-set-token (&rest ARG)
+  (if (null lab-token)
+      (setq lab-token (auth-source-pick-first-password :host "gitlab.com/api"))))
+
+(use-package! lab
+  :config (setq lab-host "https://gitlab.com"
+
+                ;; Required.
+                ;; See the following link to learn how you can gather one for yourself:
+                ;; https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html#create-a-personal-access-token
+                ;; no token set, using advice to load from authsources
+
+                ;; Optional, but useful. See the variable documentation.
+                lab-group "8501113")
+  (advice-add 'lab--request :before #'personal/gitlab-set-token))
+
 (defun personal/chat ()
   (interactive)
   (chat))
