@@ -41,9 +41,6 @@
 
 (setq holiday-other-holidays (append czech-holidays-list dutch-holidays-list))
 
-
-
-
 ;; Some functionality uses this to identify you, e.g. GPG configuration, email
 ;; clients, file templates and snippets.
 (setq user-full-name "Filip Staffa"
@@ -84,7 +81,7 @@
 ;; change `org-directory'. It must be set before org loads!
 (setq org-roam-directory "~/data/org-mode/roam")
 (setq org-roam-dailies-directory (f-join org-roam-directory "daily"))
-(setq org-directory "~/data/org-mode/org")
+(setq org-directory "~/data/org-mode/org/")
 
 ;; save buffers after 30 sec of inactivity to prevent conflicts - https://emacs.stackexchange.com/questions/477/how-do-i-automatically-save-org-mode-buffers
 (add-hook 'auto-save-hook 'org-save-all-org-buffers)
@@ -100,26 +97,25 @@
   (let* ((uppercase-name (capitalize name))
          (filename (concat name ".org"))
          (label (concat uppercase-name " next")))
-    `(,shortcut ,label entry (file+headline ,filename "next") "* %?" :time-prompt t)))
+    `(,shortcut ,label entry (file+headline ,filename "next") "* %?\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n" :time-prompt t)))
 (after! org
   (setq org-log-done 'time)
   (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
   (setq org-capture-templates
         `(("f" "Followup" entry (file+headline "refile.org" "Followup")
-           "* TODO %?\n SCHEDULED: %^t")
+           "* TODO %?\n SCHEDULED: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
           ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
-           "* TODO %?\n SCHEDULED: %t")
+           "* TODO %?\n SCHEDULED: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
           ("w" "This Week" entry (file+headline "refile.org" "This Week")
-           "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))")
-          ("s" "Standup point" entry (file+headline "refile.org" "Standups")
+           "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+          ("s" "Standup point" entry (file+headline "work.org" "Standups")
            "* %? :standup:")
-          ("r" "Retrospective point" entry (file+headline "refile.org" "Retrospective")
-           "* %? :retrospective:")
+          ("r" "Retrospective point" entry (file+headline "work.org" "Retrospective")
+           "* %? :retrospective:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
           ("d" "Daily today" entry (file+olp+datetree "daily.org") "* %?" :time-prompt t)
           ("p" "Person")
           ,(my/person-template "pa" "adam")
           ,(my/person-template "pd" "denis")
-          ,(my/person-template "pg" "grand")
           ,(my/person-template "pk" "ksenia")
           ,(my/person-template "pm" "michal")
           ,(my/person-template "ps" "stepan")
@@ -205,13 +201,10 @@ Fetching is done synchronously."
   :config
   (key-chord-mode 1)
   (setq key-chord-one-keys-delay 0.02
-        key-chord-two-keys-delay 0.03))
-
-(after! key-chord
-  (key-chord-define evil-insert-state-map "fd" 'evil-normal-state))
-
-(after! key-chord
-  (key-chord-define evil-insert-state-map "fs" 'save-buffer))
+        key-chord-two-keys-delay 0.03)
+  (key-chord-define evil-insert-state-map "fd" 'evil-normal-state)
+  (key-chord-define evil-insert-state-map "fs" 'save-buffer)
+  (key-chord-define evil-insert-state-map "jk" 'copilot-next-completion))
 
 (defun exercism-tests ()
   (interactive)
@@ -224,6 +217,14 @@ Fetching is done synchronously."
     (eval-buffer test-file)
     )
   (lispy-ert))
+
+(defun personal/exercism-disable-copilot ()
+  (let ((target-dir (expand-file-name exercism--workspace))
+        (current-file (buffer-file-name)))
+    (when (and current-file (string-prefix-p target-dir (expand-file-name current-file)))
+      (copilot-mode -1))))
+
+(add-hook 'find-file-hook 'personal/exercism-disable-copilot)
 
 (use-package! kubernetes
   :defer t
@@ -406,10 +407,22 @@ Fetching is done synchronously."
   (ert t)
   (other-window 1))
 
+(defun personal/nix/home-manager-switch ()
+  (interactive)
+  (personal/helper/custom-project-compile-command "home-manager switch --flake \".\""))
+
 (add-hook 'after-save-hook 'my/run-tests nil t)
 
-(defun personal/setup-tests () (interactive)
-       (add-hook 'after-save-hook 'personal/run-tests nil t))
+(defun personal/setup-tests ()
+  (interactive)
+  (add-hook 'after-save-hook 'personal/run-tests nil t))
+
+(defun personal/helper/custom-project-compile-command (command)
+  (projectile-run-compilation command))
+
+(defun personal/work/ccm-npm-ci ()
+  (interactive)
+  (personal/helper/custom-project-compile-command "nix-shell -p postgresql --command 'npm ci'"))
 
 (defun personal/gpg-check () (interactive)
        (let ((output-buffer "*GPG Encryption Test*"))
@@ -418,4 +431,44 @@ Fetching is done synchronously."
                (message "GPG check successful")
                (kill-buffer output-buffer)))))
 
-(use-package! exercism )
+(use-package! exercism)
+
+(use-package! copilot
+  :hook (prog-mode . copilot-mode)
+  :custom (copilot-indent-offset-warning-disable t)
+  :bind (:map copilot-completion-map
+              ("<tab>" . 'copilot-accept-completion)
+              ("TAB" . 'copilot-accept-completion)
+              ("C-TAB" . 'copilot-accept-completion-by-word)
+              ("C-<tab>" . 'copilot-accept-completion-by-word)))
+
+(use-package! treesit-auto
+  :custom
+  (treesit-auto-install 'prompt)
+  :config
+  (global-treesit-auto-mode))
+
+(use-package! hyperbole
+  :init (hyperbole-mode)
+  (defvar personal/jira-cs-browse-url "https://cimpress-support.atlassian.net/browse/")
+  (defun personal/jira-cs-reference (jira-id)
+    "Open ticket in CS Jira"
+    (let ((url (concat personal/jira-cs-browse-url jira-id)))
+      (browse-url-default-browser url)))
+  (defib personal/jira-cs ()
+    "Get the Jira ticket identifier at point and load ticket in browser"
+    (let ((case-fold-search t)
+          (jira-id nil)
+          (jira-regex "\\(LABE-[0-9]+\\)"))
+      (if (or (looking-at jira-regex)
+              (save-excursion
+                (skip-chars-backward "0-9")
+                (skip-chars-backward "-")
+                (skip-chars-backward "LABE")
+                (looking-at jira-regex)))
+          (progn (setq jira-id (match-string-no-properties 1))
+                 (ibut:label-set jira-id
+                                 (match-beginning 1)
+                                 (match-end 1))
+                 (hact 'personal/jira-cs-reference jira-id)))))
+  )

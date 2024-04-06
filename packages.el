@@ -59,8 +59,7 @@
 (package! earthfile-mode)
 (package! f)
 (package! org-super-agenda)
-(package! org-jira)
-
+(package! org-ql)
 (package! magit-delta)
 
 (package! chatgpt-shell)
@@ -69,5 +68,26 @@
 
 (package! exercism)
 (package! lab
-  :recipe (:host github :repo "isamert/lab.el")
-  :pin "9f0f738c46712f5365d9d75c37ce6d1f8b6e9ba7")
+  :recipe (:host github :repo "isamert/lab.el"))
+
+(package! eat
+  :recipe (:type git
+           :host codeberg
+           :repo "akib/emacs-eat"
+           :pre-build (("make" "terminfo"))
+           :build t
+           :files ("*.el" ("term" "term/*.el") "*.texi"
+                   "*.ti" ("terminfo/e" "terminfo/e/*")
+                   ("terminfo/65" "terminfo/65/*")
+                   ("integration" "integration/*")
+                   (:exclude ".dir-locals.el" "*-tests.el"))))
+
+(package! copilot
+  :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
+
+;; add package command-log-mode from github
+(package! command-log-mode
+  :recipe (:host github :repo "lewang/command-log-mode"))
+
+(package! treesit-auto)
+(package! hyperbole)
