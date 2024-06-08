@@ -93,34 +93,38 @@
 (setq org-archive-location "archive.org::")
 (setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
-(defun my/person-template (shortcut name)
-  (let* ((uppercase-name (capitalize name))
-         (filename (concat name ".org"))
+(defun my/person-template (name)
+  (let* ((filename (personal/person-to-file name))
+         (uppercase-name (capitalize name))
+         (shortcut (concat "p" (substring name 0 1)))
          (label (concat uppercase-name " next")))
-    `(,shortcut ,label entry (file+headline ,filename "next") "* %?\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n" :time-prompt t)))
+    `(,shortcut ,label entry (file+headline ,filename "next") "* %?\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")))
+(defun personal/person-to-file (name) (concat name ".org"))
 (after! org
   (setq org-log-done 'time)
   (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
   (setq org-capture-templates
-        `(("f" "Followup" entry (file+headline "refile.org" "Followup")
-           "* TODO %?\n SCHEDULED: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-          ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
-           "* TODO %?\n SCHEDULED: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-          ("w" "This Week" entry (file+headline "refile.org" "This Week")
-           "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-          ("s" "Standup point" entry (file+headline "work.org" "Standups")
-           "* %? :standup:")
-          ("r" "Retrospective point" entry (file+headline "work.org" "Retrospective")
-           "* %? :retrospective:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-          ("d" "Daily today" entry (file+olp+datetree "daily.org") "* %?" :time-prompt t)
-          ("p" "Person")
-          ,(my/person-template "pa" "adam")
-          ,(my/person-template "pd" "denis")
-          ,(my/person-template "pk" "ksenia")
-          ,(my/person-template "pm" "michal")
-          ,(my/person-template "ps" "stepan")
-          )
-        ))
+        (append  '(("f" "Followup" entry (file+headline "refile.org" "Followup")
+                    "* TODO %?\n SCHEDULED: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                   ("c" "coach")
+                   ("cv" "vztek" entry (file+olp+datetree "projekty.org" "coaching" "vztek") "* %?")
+                   ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
+                    "* TODO %?\n SCHEDULED: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                   ("w" "This Week" entry (file+headline "refile.org" "This Week")
+                    "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                   ("s" "Standup point" entry (file+headline "work.org" "Standups")
+                    "* %? :standup:")
+                   ("r" "Retrospective point" entry (file+headline "work.org" "Retrospective")
+                    "* %? :retrospective:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                   ("l" "Schedule for later" entry (file+headline "refile.org" "later") "* TODO %^t %?" :time-prompt t)
+                   ("p" "Person"))
+                 (list
+                  (my/person-template "adam")
+                  (my/person-template "ksenia")
+                  (my/person-template "michal")
+                  (my/person-template "stepan"))
+                 ))
+  )
 
 ;; fix org-capture-mode not starting correctly after org agenda https://github.com/doomemacs/doomemacs/issues/5714
 (after! org
@@ -445,8 +449,7 @@ Fetching is done synchronously."
 (use-package! treesit-auto
   :custom
   (treesit-auto-install 'prompt)
-  :config
-  (global-treesit-auto-mode))
+  )
 
 (use-package! hyperbole
   :init (hyperbole-mode)
@@ -472,3 +475,7 @@ Fetching is done synchronously."
                                  (match-end 1))
                  (hact 'personal/jira-cs-reference jira-id)))))
   )
+
+(use-package! beancount
+  :init (add-to-list 'auto-mode-alist '("\\.beancount\\'" . beancount-mode)))
+(use-package! lsp-tailwindcss)

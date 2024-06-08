@@ -91,3 +91,5 @@
 
 (package! treesit-auto)
 (package! hyperbole)
+(package! beancount :recipe (:host github :repo "beancount/beancount-mode"))
+(package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))
