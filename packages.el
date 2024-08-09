@@ -90,6 +90,7 @@
   :recipe (:host github :repo "lewang/command-log-mode"))
 
 (package! treesit-auto)
+(package! astro-ts-mode)
 (package! hyperbole)
 (package! beancount :recipe (:host github :repo "beancount/beancount-mode"))
 (package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))

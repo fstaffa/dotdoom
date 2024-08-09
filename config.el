@@ -109,14 +109,14 @@
                    ("c" "coach")
                    ("cv" "vztek" entry (file+olp+datetree "projekty.org" "coaching" "vztek") "* %?")
                    ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
-                    "* TODO %?\n SCHEDULED: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                    "* TODO %?\n DEADLINE: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
                    ("w" "This Week" entry (file+headline "refile.org" "This Week")
-                    "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                    "* TODO %?\n DEADLINE: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
                    ("s" "Standup point" entry (file+headline "work.org" "Standups")
                     "* %? :standup:")
                    ("r" "Retrospective point" entry (file+headline "work.org" "Retrospective")
                     "* %? :retrospective:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("l" "Schedule for later" entry (file+headline "refile.org" "later") "* TODO %^t %?" :time-prompt t)
+                   ("l" "Deadline for later" entry (file+headline "refile.org" "later") "* TODO %?\nDEADLINE: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n" :time-prompt t)
                    ("p" "Person"))
                  (list
                   (my/person-template "adam")
@@ -335,7 +335,10 @@ Fetching is done synchronously."
 (add-hook 'lsp-managed-mode-hook
           (lambda ()
             (when (derived-mode-p 'sh-mode)
-              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (sh-shellcheck)))))))))
+              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (sh-shellcheck)))))))
+            (when (derived-mode-p 'go-mode)
+              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (golangci-lint)))))))
+            ))
 
 (setq jiralib-url "https://cimpress-support.atlassian.net")
 
@@ -446,11 +449,6 @@ Fetching is done synchronously."
               ("C-TAB" . 'copilot-accept-completion-by-word)
               ("C-<tab>" . 'copilot-accept-completion-by-word)))
 
-(use-package! treesit-auto
-  :custom
-  (treesit-auto-install 'prompt)
-  )
-
 (use-package! hyperbole
   :init (hyperbole-mode)
   (defvar personal/jira-cs-browse-url "https://cimpress-support.atlassian.net/browse/")
@@ -478,4 +476,6 @@ Fetching is done synchronously."
 
 (use-package! beancount
   :init (add-to-list 'auto-mode-alist '("\\.beancount\\'" . beancount-mode)))
-(use-package! lsp-tailwindcss)
+(use-package lsp-tailwindcss
+  :init
+  (setq lsp-tailwindcss-add-on-mode t))
