@@ -30,7 +30,7 @@
           (list 4 26 year)
         (list 4 27 year))
      "Koningsdag")
-    (holiday-sexp '(if (= 0 (% year 5))) "Liberation Day / Bevrijdingsdag")
+    (holiday-sexp '(if (zerop (% year 5)) (list 5 5 year)) "Liberation Day / Bevrijdingsdag")
     (holiday-easter-etc +39 "Ascension Day / Hemelvaart")
     (holiday-easter-etc +49 "Whit (Pentecost) Sunday / Eerste Pinksterdag")
     (holiday-easter-etc +50 "Whit (Pentecost) Monday / Tweede Pinksterdag")
@@ -479,3 +479,11 @@ Fetching is done synchronously."
 (use-package lsp-tailwindcss
   :init
   (setq lsp-tailwindcss-add-on-mode t))
+
+(add-hook 'emacs-startup-hook
+          (lambda ()
+            (org-agenda nil "c")
+            (org-super-agenda-mode)))
+
+(setq +doom-dashboard-ascii-banner-fn nil)
+(setq inhibit-startup-screen t)
