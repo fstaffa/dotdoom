@@ -487,3 +487,11 @@ Fetching is done synchronously."
 
 (setq +doom-dashboard-ascii-banner-fn nil)
 (setq inhibit-startup-screen t)
+
+(set-popup-rule! "^\\*npm:.*\\*" :side 'bottom :size 0.3 :quit t)
+
+(add-hook 'compilation-finish-functions
+          (lambda (buf str)
+            (if (string-match ".*exited abnormally.*" str)
+                (progn
+                  (switch-to-buffer-other-window buf)))))
