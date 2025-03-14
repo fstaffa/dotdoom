@@ -85,6 +85,7 @@
 
 ;; save buffers after 30 sec of inactivity to prevent conflicts - https://emacs.stackexchange.com/questions/477/how-do-i-automatically-save-org-mode-buffers
 (add-hook 'auto-save-hook 'org-save-all-org-buffers)
+(auto-save-visited-mode 1)
 
 (setq x-selection-timeout 10)
 (setq org-agenda-include-diary t)
@@ -122,7 +123,9 @@
                   (my/person-template "adam")
                   (my/person-template "ksenia")
                   (my/person-template "michal")
-                  (my/person-template "stepan"))
+                  (my/person-template "stepan")
+                  (my/person-template "daniel")
+                  (my/person-template "vladyslav"))
                  ))
   )
 
