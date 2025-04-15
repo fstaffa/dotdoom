@@ -242,6 +242,7 @@ Fetching is done synchronously."
 (use-package! kubernetes-evil
   :after kubernetes-overview)
 
+(use-package! prodigy)
 (map! :leader :desc "prodigy" "o p" #'prodigy)
 
 (dolist (account '("logisticsquotingplanning" "praguematic" "sapidus"))
@@ -302,8 +303,6 @@ Fetching is done synchronously."
             (alltodo "" ((org-agenda-overriding-header "")
                          (org-super-agenda-groups
                           '((:log t)
-                            (:name "To refile"
-                             :file-path "refile\\.org")
                             (:name "Standup"
                              :tag "standup")
                             (:name "Today's tasks"
@@ -313,10 +312,13 @@ Fetching is done synchronously."
                              :order 2)
                             (:name "Scheduled Soon"
                              :scheduled future
-                             :order 8)
+                             :order 4)
                             (:name "Overdue"
                              :deadline past
-                             :order 7)
+                             :order 3)
+                            (:name "To refile"
+                             :file-path "refile\\.org"
+                             :order 5)
                             (:discard (:not (:todo "TODO")))))))))))
   :config
   (org-super-agenda-mode))
@@ -498,3 +500,4 @@ Fetching is done synchronously."
             (if (string-match ".*exited abnormally.*" str)
                 (progn
                   (switch-to-buffer-other-window buf)))))
+

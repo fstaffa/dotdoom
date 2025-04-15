@@ -29,3 +29,4 @@
 (package! astro-ts-mode)
 (package! hyperbole)
 (package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))
+(package! prodigy :recipe (:host github :repo "rejeep/prodigy.el"))
