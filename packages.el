@@ -29,3 +29,4 @@
 (package! hyperbole)
 (package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))
 (package! prodigy :recipe (:host github :repo "rejeep/prodigy.el"))
+(package! aidermacs :recipe (:host github :repo "MatthewZMD/aidermacs"))

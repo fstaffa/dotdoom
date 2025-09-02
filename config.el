@@ -385,10 +385,32 @@ Fetching is done synchronously."
 (defun personal/chat-mode ()
   (visual-line-mode 1))
 
+(require 'auth-source)
+(defun personal/openai-auth-token ()
+  "Search for and return the OpenAI API token from auth-sources."
+  (auth-source-pick-first-password :host "api.anthropic.com"))
+
+(defun personal/anthropic-auth-token ()
+  "Search for and return the Anthropic API token from auth-sources."
+  (auth-source-pick-first-password :host "api.anthropic.com"))
+(auth-source-forget-all-cached)
+
 (use-package! chatgpt-shell
-  :config (setq chatgpt-shell-openai-key
-                (lambda ()
-                  (auth-source-pick-first-password :host "api.openai.com"))))
+  :config (setq chatgpt-shell-openai-key 'personal/openai-auth-token
+                chatgpt-shell-anthropic-key 'personal/anthropic-auth-token
+                chatgpt-shell-default-model "claude-3-7-sonnet-20250219"
+                chatgpt-shell-default-backend 'anthropic))
+
+(use-package! aidermacs
+  :defer t
+  :config
+  (setenv "ANTHROPIC_API_KEY" (personal/anthropic-auth-token)))
+(map! :leader :desc "aidermacs transient" "l a" #'aidermacs-transient-menu)
+
+(setq
+ gptel-model 'claude-3-7-sonnet-20250219
+ gptel-backend (gptel-make-anthropic "Claude"
+                 :stream t :key 'personal/anthropic-auth-token))
 
 (defun personal/gitlab-set-token (&rest ARG)
   (if (null lab-token)
