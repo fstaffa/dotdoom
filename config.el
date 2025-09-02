@@ -245,7 +245,7 @@ Fetching is done synchronously."
 (use-package! prodigy)
 (map! :leader :desc "prodigy" "o p" #'prodigy)
 
-(dolist (account '("logisticsquotingplanning" "praguematic" "sapidus"))
+(dolist (account '("logisticsquotingplanning"))
   (prodigy-define-service
     :name (concat "AWS " account)
     :command "stskeygen"
@@ -274,9 +274,6 @@ Fetching is done synchronously."
 (setq evil-snipe-override-evil-repeat-keys nil)
 (setq doom-localleader-key ",")
 (setq doom-localleader-alt-key "M-,")
-
-(use-package! graphviz-dot-mode
-  :ensure t)
 
 ;; (setq org-super-agenda-header-map evil-org-agenda-mode-map)
 (use-package! org-super-agenda

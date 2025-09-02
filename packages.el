@@ -4,7 +4,6 @@
 (package! kubernetes-evil)
 (package! nvm :pin "c214762")
 
-(package! graphviz-dot-mode)
 (package! f)
 (package! org-super-agenda)
 (package! org-ql)
