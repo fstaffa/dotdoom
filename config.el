@@ -87,6 +87,11 @@
 (add-hook 'auto-save-hook 'org-save-all-org-buffers)
 (auto-save-visited-mode 1)
 
+;; automatically reload org files when they change on disk (Syncthing sync)
+(global-auto-revert-mode 1)
+(setq auto-revert-verbose nil)  ; don't show messages when reverting
+(setq auto-revert-use-notify t) ; use file system notifications for faster updates
+
 (setq x-selection-timeout 10)
 (setq org-agenda-include-diary t)
 (setq org-agenda-files (list org-directory))
@@ -110,8 +115,12 @@
                    ("c" "coach")
                    ("cv" "vztek" entry (file+olp+datetree "projekty.org" "coaching" "vztek") "* %?")
                    ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
+                    "* TODO %?\n SCHEDULED: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                   ("T" "Do Today (Deadline)" entry (file+headline "refile.org" "Do Today")
                     "* TODO %?\n DEADLINE: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
                    ("w" "This Week" entry (file+headline "refile.org" "This Week")
+                    "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+                   ("W" "This Week (Deadline)" entry (file+headline "refile.org" "This Week")
                     "* TODO %?\n DEADLINE: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
                    ("s" "Standup point" entry (file+headline "work.org" "Standups")
                     "* %? :standup:")
@@ -401,12 +410,6 @@ Fetching is done synchronously."
                 chatgpt-shell-default-model "claude-3-7-sonnet-20250219"
                 chatgpt-shell-default-backend 'anthropic))
 
-(use-package! aidermacs
-  :defer t
-  :config
-  (setenv "ANTHROPIC_API_KEY" (personal/anthropic-auth-token)))
-(map! :leader :desc "aidermacs transient" "l a" #'aidermacs-transient-menu)
-
 (setq
  gptel-model 'claude-3-7-sonnet-20250219
  gptel-backend (gptel-make-anthropic "Claude"
@@ -520,3 +523,16 @@ Fetching is done synchronously."
                 (progn
                   (switch-to-buffer-other-window buf)))))
 
+(defun my/use-literal-tabs ()
+  "Configure the buffer to use literal tabs for indentation."
+  (setq-local tab-width 2))
+
+;; 2. Add this function to the hooks for the relevant major modes.
+(add-hook 'typescript-ts-mode-hook #'my/use-literal-tabs)
+(add-hook 'tsx-ts-mode-hook #'my/use-literal-tabs)
+(add-hook 'js-mode-hook #'my/use-literal-tabs)
+
+(require 'acp)
+(require 'agent-shell)
+(setq agent-shell-anthropic-authentication
+      (agent-shell-anthropic-make-authentication :login t))

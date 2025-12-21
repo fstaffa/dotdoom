@@ -29,4 +29,6 @@
 (package! hyperbole)
 (package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))
 (package! prodigy :recipe (:host github :repo "rejeep/prodigy.el"))
-(package! aidermacs :recipe (:host github :repo "MatthewZMD/aidermacs"))
+(package! shell-maker)
+(package! acp :recipe (:host github :repo "xenodium/acp.el"))
+(package! agent-shell :recipe (:host github :repo "xenodium/agent-shell"))
