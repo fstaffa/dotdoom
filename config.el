@@ -107,6 +107,12 @@
     `(,shortcut ,label entry (file+headline ,filename "next") "* %?\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")))
 (defun personal/person-to-file (name) (concat name ".org"))
 (after! org
+  (require 'org-habit)
+  (add-to-list 'org-modules 'org-habit)
+  (setq org-habit-graph-column 60
+        org-habit-show-habits-only-for-today nil
+        org-habit-following-days 7
+        org-habit-preceding-days 21)
   (setq org-log-done 'time)
   (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
   (setq org-capture-templates
@@ -277,6 +283,11 @@ Fetching is done synchronously."
       :args (list "run.sh" environment)
       )))
 
+(prodigy-define-service
+  :name "docker postgres"
+  :command "docker"
+  :args '("run" "--rm" "-p" "5432:5432" "-e" "POSTGRES_PASSWORD=postgres" "postgres")
+  )
 
 (setenv "NVM_DIR" "~/.local/share/nvm")
 
@@ -301,14 +312,22 @@ Fetching is done synchronously."
   (setq org-agenda-custom-commands
         '(("c" "Super view"
            ((agenda "" ((org-agenda-overriding-header "")
+                        (org-agenda-span 'day)
+                        (org-habit-show-all-today t)
+                        (org-habit-show-habits-only-for-today t)
                         (org-super-agenda-groups
-                         '((:name "Today"
+                         '((:name "Habits"
+                            :habit t
+                            :order 0)
+                           (:name "Today"
                             :time-grid t
                             :date today
                             :order 1)))))
             (alltodo "" ((org-agenda-overriding-header "")
                          (org-super-agenda-groups
                           '((:log t)
+                            (:name "Habits"
+                             :habit t)
                             (:name "Standup"
                              :tag "standup")
                             (:name "Today's tasks"
@@ -330,9 +349,6 @@ Fetching is done synchronously."
   (org-super-agenda-mode))
 
 (setq +format-with-lsp nil)
-
-
-(setq lsp-csharp-server-path "OmniSharp")
 
 ;; fix for lsp
 (defvar-local my/flycheck-local-cache nil)
@@ -410,10 +426,17 @@ Fetching is done synchronously."
                 chatgpt-shell-default-model "claude-3-7-sonnet-20250219"
                 chatgpt-shell-default-backend 'anthropic))
 
-(setq
- gptel-model 'claude-3-7-sonnet-20250219
- gptel-backend (gptel-make-anthropic "Claude"
-                 :stream t :key 'personal/anthropic-auth-token))
+(use-package! claude-code
+  :after transient
+  :defer t
+  :config
+  (setq claude-code-terminal-backend 'vterm)
+  (claude-code-mode))
+
+(map! :leader
+      :desc "Claude Code transient menu" "l c" #'claude-code-transient)
+
+(map! "C-c c" #'claude-code-transient)
 
 (defun personal/gitlab-set-token (&rest ARG)
   (if (null lab-token)
@@ -476,6 +499,11 @@ Fetching is done synchronously."
               ("C-TAB" . 'copilot-accept-completion-by-word)
               ("C-<tab>" . 'copilot-accept-completion-by-word)))
 
+
+(after! corfu
+  (require 'nerd-icons-corfu)
+  (add-to-list 'corfu-margin-formatters #'nerd-icons-corfu-formatter))
+
 (use-package! hyperbole
   :init (hyperbole-mode)
   (defvar personal/jira-cs-browse-url "https://cimpress-support.atlassian.net/browse/")
@@ -484,21 +512,21 @@ Fetching is done synchronously."
     (let ((url (concat personal/jira-cs-browse-url jira-id)))
       (browse-url-default-browser url)))
   (defib personal/jira-cs ()
-    "Get the Jira ticket identifier at point and load ticket in browser"
-    (let ((case-fold-search t)
-          (jira-id nil)
-          (jira-regex "\\(LABE-[0-9]+\\)"))
-      (if (or (looking-at jira-regex)
-              (save-excursion
-                (skip-chars-backward "0-9")
-                (skip-chars-backward "-")
-                (skip-chars-backward "LABE")
-                (looking-at jira-regex)))
-          (progn (setq jira-id (match-string-no-properties 1))
-                 (ibut:label-set jira-id
-                                 (match-beginning 1)
-                                 (match-end 1))
-                 (hact 'personal/jira-cs-reference jira-id)))))
+         "Get the Jira ticket identifier at point and load ticket in browser"
+         (let ((case-fold-search t)
+               (jira-id nil)
+               (jira-regex "\\(LABE-[0-9]+\\)"))
+           (if (or (looking-at jira-regex)
+                   (save-excursion
+                     (skip-chars-backward "0-9")
+                     (skip-chars-backward "-")
+                     (skip-chars-backward "LABE")
+                     (looking-at jira-regex)))
+               (progn (setq jira-id (match-string-no-properties 1))
+                      (ibut:label-set jira-id
+                                      (match-beginning 1)
+                                      (match-end 1))
+                      (hact 'personal/jira-cs-reference jira-id)))))
   )
 
 (use-package! beancount
@@ -506,6 +534,16 @@ Fetching is done synchronously."
 (use-package lsp-tailwindcss
   :init
   (setq lsp-tailwindcss-add-on-mode t))
+
+;; (use-package! jj
+;;   :commands (jj-status)
+;;   :config
+;;   (when (and (boundp 'evil-mode) (fboundp 'evil-define-key))
+;;     (evil-define-key 'normal jj-status-mode-map (kbd "q") #'jj-window-quit)
+;;     (evil-define-key 'normal jj-status-mode-map (kbd "l") #'jj-status-log-popup)
+;;     (evil-define-key 'normal jj-status-mode-map (kbd "?") #'jj-status-popup)))
+
+;; (map! :leader :desc "jujutsu status" "j s" #'jj-status)
 
 (add-hook 'emacs-startup-hook
           (lambda ()
