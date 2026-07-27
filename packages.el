@@ -15,6 +15,9 @@
 (unpin! lsp-mode)
 
 (package! exercism)
+(package! promise)
+(package! iter2)
+(package! async-await)
 (package! lab
   :recipe (:host github :repo "isamert/lab.el"))
 
