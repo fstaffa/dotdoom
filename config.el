@@ -197,8 +197,7 @@ Fetching is done synchronously."
   (setq key-chord-one-keys-delay 0.02
         key-chord-two-keys-delay 0.03)
   (key-chord-define evil-insert-state-map "fd" 'evil-normal-state)
-  (key-chord-define evil-insert-state-map "fs" 'save-buffer)
-  (key-chord-define evil-insert-state-map "jk" 'copilot-next-completion))
+  (key-chord-define evil-insert-state-map "fs" 'save-buffer))
 
 (defun exercism-tests ()
   (interactive)
@@ -212,13 +211,6 @@ Fetching is done synchronously."
     )
   (lispy-ert))
 
-(defun personal/exercism-disable-copilot ()
-  (let ((target-dir (expand-file-name exercism--workspace))
-        (current-file (buffer-file-name)))
-    (when (and current-file (string-prefix-p target-dir (expand-file-name current-file)))
-      (copilot-mode -1))))
-
-(add-hook 'find-file-hook 'personal/exercism-disable-copilot)
 
 (use-package! kubernetes
   :defer t
@@ -687,16 +679,6 @@ Fetching is done synchronously."
                (kill-buffer output-buffer)))))
 
 (use-package! exercism)
-
-(use-package! copilot
-  :hook (prog-mode . copilot-mode)
-  :custom (copilot-indent-offset-warning-disable t)
-  :bind (:map copilot-completion-map
-              ("<tab>" . 'copilot-accept-completion)
-              ("TAB" . 'copilot-accept-completion)
-              ("C-TAB" . 'copilot-accept-completion-by-word)
-              ("C-<tab>" . 'copilot-accept-completion-by-word)))
-
 
 (after! corfu
   (require 'nerd-icons-corfu)
