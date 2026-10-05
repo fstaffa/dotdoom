@@ -8,6 +8,10 @@
 (package! f)
 (package! org-super-agenda)
 (package! org-ql)
+(package! denote)
+(package! denote-journal)
+(package! denote-org)
+(package! consult-denote)
 (package! magit-delta)
 
 (package! chatgpt-shell)

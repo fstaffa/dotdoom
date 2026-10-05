@@ -1,0 +1,5 @@
+#!/bin/sh
+# Wrapper: run the kb tool in batch Emacs.  Usage: kb validate [--strict] [ROOT]
+dir=$(cd "$(dirname "$0")" && pwd)
+# "--" keeps Emacs from interpreting our arguments (--title, --version, --eval, ...).
+exec "${EMACS:-emacs}" --batch -Q -l "$dir/kb.el" -f kb-main -- "$@"

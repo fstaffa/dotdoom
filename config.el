@@ -79,9 +79,9 @@
 
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
-(setq org-roam-directory "~/data/org-mode/roam")
-(setq org-roam-dailies-directory (f-join org-roam-directory "daily"))
-(setq org-directory "~/data/org-mode/org/")
+;; Denote based knowledge base (see kb-denote.el and kb/).
+(load! "kb-denote")
+(setq org-directory personal/kb-root)
 
 ;; save buffers after 30 sec of inactivity to prevent conflicts - https://emacs.stackexchange.com/questions/477/how-do-i-automatically-save-org-mode-buffers
 (add-hook 'auto-save-hook 'org-save-all-org-buffers)
@@ -94,18 +94,9 @@
 
 (setq x-selection-timeout 10)
 (setq org-agenda-include-diary t)
-(setq org-agenda-files (list org-directory))
-(setq org-default-notes-file "refile.org")
-(setq org-archive-location "archive.org::")
-(setq org-refile-targets '((org-agenda-files :maxlevel . 3)))
+(setq org-default-notes-file "tasks.org")
+(setq org-refile-targets '((personal/kb-refile-files :maxlevel . 2)))
 (setq org-refile-allow-creating-parent-nodes 'confirm)
-(defun my/person-template (name)
-  (let* ((filename (personal/person-to-file name))
-         (uppercase-name (capitalize name))
-         (shortcut (concat "p" (substring name 0 1)))
-         (label (concat uppercase-name " next")))
-    `(,shortcut ,label entry (file+headline ,filename "next") "* %?\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")))
-(defun personal/person-to-file (name) (concat name ".org"))
 (after! org
   (require 'org-habit)
   (add-to-list 'org-modules 'org-habit)
@@ -114,35 +105,16 @@
         org-habit-following-days 7
         org-habit-preceding-days 21)
   (setq org-log-done 'time)
-  (setq org-todo-keywords '((sequence "TODO(t)" "DONE(d)")))
+  (setq org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "WAITING(w)" "|" "DONE(d)")))
   (setq org-capture-templates
-        (append  '(("f" "Followup" entry (file+headline "refile.org" "Followup")
-                    "* TODO %?\n SCHEDULED: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("c" "coach")
-                   ("cv" "vztek" entry (file+olp+datetree "projekty.org" "coaching" "vztek") "* %?")
-                   ("t" "Do Today" entry (file+headline "refile.org" "Do Today")
-                    "* TODO %?\n SCHEDULED: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("T" "Do Today (Deadline)" entry (file+headline "refile.org" "Do Today")
-                    "* TODO %?\n DEADLINE: %t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("w" "This Week" entry (file+headline "refile.org" "This Week")
-                    "* TODO %?\n SCHEDULED: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("W" "This Week (Deadline)" entry (file+headline "refile.org" "This Week")
-                    "* TODO %?\n DEADLINE: %(org-insert-time-stamp (org-read-date nil t \"Fri\"))\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("s" "Standup point" entry (file+headline "work.org" "Standups")
-                    "* %? :standup:")
-                   ("r" "Retrospective point" entry (file+headline "work.org" "Retrospective")
-                    "* %? :retrospective:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
-                   ("l" "Deadline for later" entry (file+headline "refile.org" "later") "* TODO %?\nDEADLINE: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n" :time-prompt t)
-                   ("p" "Person"))
-                 (list
-                  (my/person-template "adam")
-                  (my/person-template "ksenia")
-                  (my/person-template "michal")
-                  (my/person-template "stepan")
-                  (my/person-template "daniel")
-                  (my/person-template "vladyslav"))
-                 ))
-  )
+        '(("i" "Inbox note (new file)" plain (function personal/kb-new-inbox-file) "%?"
+           :empty-lines 0 :jump-to-captured nil)
+          ("t" "Task" entry (file "tasks.org")
+           "* TODO %?\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+          ("s" "Task (scheduled)" entry (file "tasks.org")
+           "* TODO %?\nSCHEDULED: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+          ("d" "Task (deadline)" entry (file "tasks.org")
+           "* TODO %?\nDEADLINE: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n"))))
 
 ;; fix org-capture-mode not starting correctly after org agenda https://github.com/doomemacs/doomemacs/issues/5714
 (after! org
@@ -341,12 +313,18 @@ Fetching is done synchronously."
                             (:name "Overdue"
                              :deadline past
                              :order 3)
-                            (:name "To refile"
-                             :file-path "refile\\.org"
+                            (:name "Captured in tasks.org"
+                             :file-path "tasks\\.org"
                              :order 5)
                             (:discard (:not (:todo "TODO")))))))))))
   :config
   (org-super-agenda-mode))
+
+;; Agenda views for the knowledge base.  Added after the "c" view above is defined.
+(after! org-agenda
+  (dolist (cmd '(("n" "Next actions" todo "NEXT")
+                 ("w" "Waiting for" todo "WAITING")))
+    (add-to-list 'org-agenda-custom-commands cmd t)))
 
 (setq +format-with-lsp nil)
 
