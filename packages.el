@@ -25,9 +25,6 @@
 (package! lab
   :recipe (:host github :repo "isamert/lab.el"))
 
-(package! copilot
-  :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
-
 ;; add package command-log-mode from github
 (package! command-log-mode
   :recipe (:host github :repo "lewang/command-log-mode"))

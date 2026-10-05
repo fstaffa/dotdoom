@@ -12,6 +12,8 @@
 
 (defun personal/kb-archived-file-p (file)
   "Non-nil when FILE's Denote keywords include `archive'."
+  ;; Called while building the agenda, possibly before Denote is loaded.
+  (require 'denote)
   (member "archive" (denote-extract-keywords-from-path file)))
 
 (defun personal/kb-agenda-files ()

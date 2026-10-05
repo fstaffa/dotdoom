@@ -300,6 +300,9 @@ Fetching is done synchronously."
                           '((:log t)
                             (:name "Habits"
                              :habit t)
+                            (:name "GitLab"
+                             :file-path "gitlab\\.org"
+                             :order 0)
                             (:name "Standup"
                              :tag "standup")
                             (:name "Today's tasks"
@@ -316,7 +319,7 @@ Fetching is done synchronously."
                             (:name "Captured in tasks.org"
                              :file-path "tasks\\.org"
                              :order 5)
-                            (:discard (:not (:todo "TODO")))))))))))
+                            (:discard (:not (:todo ("TODO" "REVIEW"))))))))))))
   :config
   (org-super-agenda-mode))
 
@@ -431,6 +434,223 @@ Fetching is done synchronously."
                 ;; Optional, but useful. See the variable documentation.
                 lab-group "8501113")
   (advice-add 'lab--request :before #'personal/gitlab-set-token))
+
+(defun personal/org-agenda-open-gitlab-url ()
+  "Open the URL property of the current org-agenda entry in browser."
+  (interactive)
+  (let* ((marker (or (org-get-at-bol 'org-hd-marker)
+                     (org-get-at-bol 'org-marker)))
+         (url (when marker
+                (with-current-buffer (marker-buffer marker)
+                  (save-excursion
+                    (goto-char (marker-position marker))
+                    (org-entry-get nil "URL"))))))
+    (if (and url (not (string-empty-p url)))
+        (browse-url url)
+      (message "No URL property found on this entry"))))
+
+(after! evil-org-agenda
+  (evil-define-key 'motion evil-org-agenda-mode-map
+    "o" #'personal/org-agenda-open-gitlab-url
+    "x" #'personal/gitlab-mark-todo-done))
+
+(defun personal/gitlab--time-ago (iso-string)
+  "Return a compact human-readable age string for ISO-STRING timestamp."
+  (let* ((then (float-time (date-to-time iso-string)))
+         (delta (- (float-time) then))
+         (mins  (floor (/ delta 60)))
+         (hours (floor (/ delta 3600)))
+         (days  (floor (/ delta 86400))))
+    (cond ((< delta 3600)  (format "%dm" mins))
+          ((< delta 86400) (format "%dh" hours))
+          ((< days 30)     (format "%dd" days))
+          ((< days 365)    (format "%dmo" (floor (/ days 30))))
+          (t               (format "%dy" (floor (/ days 365)))))))
+
+(defvar personal/gitlab--refreshing nil
+  "Non-nil while an async GitLab refresh is in flight.")
+
+(defun personal/gitlab--request-async (callback endpoint &rest params)
+  "Request ENDPOINT asynchronously and call CALLBACK with the data (nil on error)."
+  (apply #'lab--request endpoint
+         (append params
+                 (list :%success callback
+                       :%error (lambda (&rest _) (funcall callback nil))))))
+
+(defun personal/gitlab-refresh ()
+  "Fetch GitLab todos, MRs, and issues asynchronously and write them to gitlab.org."
+  (interactive)
+  (if personal/gitlab--refreshing
+      (message "GitLab: refresh already in progress")
+    (message "GitLab: refreshing...")
+    (personal/gitlab-set-token)
+    (setq personal/gitlab--refreshing t)
+    (let ((pending 4) todos mrs-created mrs-assigned issues)
+      (cl-flet ((collector (setter)
+                  (lambda (data)
+                    (funcall setter data)
+                    (when (zerop (cl-decf pending))
+                      (unwind-protect
+                          (personal/gitlab--write
+                           todos
+                           (seq-uniq (append mrs-created mrs-assigned)
+                                     (lambda (a b) (equal (alist-get 'web_url a)
+                                                          (alist-get 'web_url b))))
+                           issues)
+                        (setq personal/gitlab--refreshing nil))))))
+        (condition-case err
+            (progn
+              (personal/gitlab--request-async
+               (collector (lambda (d) (setq todos d))) "todos")
+              (personal/gitlab--request-async
+               (collector (lambda (d) (setq mrs-created d)))
+               "merge_requests" :scope 'created_by_me :state 'opened)
+              (personal/gitlab--request-async
+               (collector (lambda (d) (setq mrs-assigned d)))
+               "merge_requests" :scope 'assigned_to_me :state 'opened)
+              (personal/gitlab--request-async
+               (collector (lambda (d) (setq issues d)))
+               "issues" :scope "assigned_to_me" :state "opened"))
+          (error (setq personal/gitlab--refreshing nil)
+                 (message "GitLab refresh error: %s" err)))))))
+
+(defun personal/gitlab--write (todos mrs issues)
+  "Write TODOS, MRS and ISSUES to gitlab.org and refresh the agenda."
+  (let* ((gitlab-file (expand-file-name "gitlab.org" org-directory))
+         (buf (find-file-noselect gitlab-file)))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert "#+TODO: TODO | DONE\n")
+      (insert "#+TODO: REVIEW | DONE\n")
+      (insert "#+FILETAGS: :gitlab:\n")
+      (insert "#+TITLE: GitLab\n\n")
+      (insert "* GitLab\n")
+      (insert ":PROPERTIES:\n")
+      (insert (format ":GITLAB_REFRESHED: %s\n"
+                      (format-time-string "[%Y-%m-%d %a %H:%M]")))
+      (insert ":END:\n\n")
+      (insert "** Todos\n")
+      (dolist (todo todos)
+        (let-alist todo
+          (let* ((target-state (alist-get 'state .target))
+                 (state-tag (pcase target-state
+                              ("closed" ":closed:")
+                              ("merged" ":merged:")
+                              (_ "")))
+                 (author (or (alist-get 'username .author) ""))
+                 (title (or (alist-get 'title .target) "Untitled"))
+                 (body (or .body ""))
+                 (heading (if (string= body "") title body))
+                 (type-prefix (pcase .target_type
+                                ("MergeRequest" "!")
+                                ("Issue" "#")
+                                (_ ""))))
+            (insert (format "*** TODO %s  [%s]  :gitlab:todo:%s\n"
+                            heading
+                            (if .created_at (personal/gitlab--time-ago .created_at) "?")
+                            state-tag))
+            (insert ":PROPERTIES:\n")
+            (insert (format ":URL:            %s\n" (or .target_url "")))
+            (insert (format ":GITLAB_TODO_ID: %s\n" (or .id "")))
+            (insert (format ":TITLE:          [%s%s] %s\n"
+                            type-prefix
+                            (or (alist-get 'iid .target) "")
+                            title))
+            (insert (format ":PROJECT:        %s\n" (or (alist-get 'name .project) "")))
+            (insert (format ":ACTION:         %s\n" (or .action_name "")))
+            (insert (format ":AUTHOR:         %s\n" author))
+            (when .created_at
+              (insert (format ":CREATED:  %s\n"
+                              (format-time-string "[%Y-%m-%d %a]"
+                                                  (date-to-time .created_at)))))
+            (insert ":END:\n"))))
+      (insert "\n** Merge Requests\n")
+      (dolist (mr mrs)
+        (let-alist mr
+          (let ((project (thread-last (or .web_url "")
+                           (s-chop-prefix lab-host)
+                           (s-chop-prefix "/")
+                           (s-split "/-/")
+                           (car))))
+            (insert (format "*** REVIEW %s  [%s]  :gitlab:mr:\n"
+                            .title
+                            (if .created_at (personal/gitlab--time-ago .created_at) "?")))
+            (insert ":PROPERTIES:\n")
+            (insert (format ":URL:     %s\n" .web_url))
+            (insert (format ":PROJECT: %s\n" project))
+            (insert (format ":AUTHOR:  %s\n" (or (alist-get 'username .author) "")))
+            (insert ":END:\n"))))
+      (insert "\n** Issues\n")
+      (dolist (issue issues)
+        (let-alist issue
+          (let ((project (thread-last (or .web_url "")
+                           (s-chop-prefix lab-host)
+                           (s-chop-prefix "/")
+                           (s-split "/-/")
+                           (car))))
+            (insert (format "*** REVIEW %s  [%s]  :gitlab:issue:\n"
+                            .title
+                            (if .created_at (personal/gitlab--time-ago .created_at) "?")))
+            (insert ":PROPERTIES:\n")
+            (insert (format ":URL:     %s\n" .web_url))
+            (insert (format ":PROJECT: %s\n" project))
+            (insert ":END:\n"))))
+      (save-buffer))
+    (message "GitLab: %d todos, %d MRs, %d issues"
+             (length todos) (length mrs) (length issues))
+    (when (get-buffer org-agenda-buffer-name)
+      (with-current-buffer org-agenda-buffer-name
+        (org-agenda-redo t)))))
+
+(defvar personal/gitlab-refresh-interval-minutes 30)
+
+(defun personal/gitlab-maybe-refresh ()
+  (let* ((f (expand-file-name "gitlab.org" org-directory))
+         (mtime (when (file-exists-p f)
+                  (float-time (nth 5 (file-attributes f)))))
+         (stale? (or (null mtime)
+                     (> (- (float-time) mtime)
+                        (* personal/gitlab-refresh-interval-minutes 60)))))
+    (when stale?
+      (run-with-idle-timer 1 nil #'personal/gitlab-refresh))))
+
+(add-hook 'org-agenda-mode-hook #'personal/gitlab-maybe-refresh)
+
+(map! :leader
+      :desc "Refresh GitLab" "o g" #'personal/gitlab-refresh)
+
+(defun personal/gitlab-mark-todo-done ()
+  "Mark the GitLab todo at point as done via the API."
+  (interactive)
+  (let* ((marker (or (org-get-at-bol 'org-hd-marker)
+                     (org-get-at-bol 'org-marker)))
+         (todo-id (when marker
+                    (with-current-buffer (marker-buffer marker)
+                      (save-excursion
+                        (goto-char (marker-position marker))
+                        (org-entry-get nil "GITLAB_TODO_ID"))))))
+    (if (and todo-id (not (string-empty-p todo-id)))
+        (progn
+          (personal/gitlab-set-token)
+          (lab--request (format "todos/%s/mark_as_done" todo-id) :%type "POST"
+                        :%success (lambda (_) (message "GitLab todo %s marked as done" todo-id)))
+          (message "GitLab: marking todo %s as done..." todo-id))
+      (message "No GITLAB_TODO_ID on this entry"))))
+
+(defun personal/gitlab-org-todo-done-hook ()
+  "When a gitlab:todo entry is marked DONE, resolve it in GitLab."
+  (when (and (buffer-file-name)
+             (string-match-p "gitlab\\.org$" (buffer-file-name)))
+    (let ((todo-id (org-entry-get nil "GITLAB_TODO_ID")))
+      (when (and todo-id
+                 (not (string-empty-p todo-id))
+                 (string= (org-get-todo-state) "DONE"))
+        (personal/gitlab-set-token)
+        (lab--request (format "todos/%s/mark_as_done" todo-id) :%type "POST"
+                      :%success (lambda (_) (message "GitLab todo %s resolved" todo-id)))))))
+
+(add-hook 'org-after-todo-state-change-hook #'personal/gitlab-org-todo-done-hook)
 
 (defun personal/chat ()
   (interactive)
