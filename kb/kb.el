@@ -417,7 +417,8 @@ already broken can still be edited, just not made worse."
        kb agenda-export [--print] [--root DIR]
        kb state FILE HEADING TODO|NEXT|WAITING|DONE|none [--root DIR]
        kb schedule FILE HEADING YYYY-MM-DD|none [--root DIR]
-       kb deadline FILE HEADING YYYY-MM-DD|none [--root DIR]\n")
+       kb deadline FILE HEADING YYYY-MM-DD|none [--root DIR]
+       kb install-template [--root DIR]   (copy template/CLAUDE.md and template/.claude into the KB root)\n")
   (kill-emacs 2))
 
 (defun kb--parse-args (args flags)
@@ -904,6 +905,32 @@ keywords plus the heading's own tags.  Sorted by date (undated last), then file.
           (princ (format "%s\n" (kb--rel file)))))
       (kill-emacs 0))))
 
+;;;; install-template
+
+(defconst kb--template-dir
+  (expand-file-name "template" (file-name-directory (or load-file-name buffer-file-name)))
+  "Source of the CLAUDE.md and .claude/ files deployed to the KB root.")
+
+(defun kb-cmd-install-template (args)
+  "kb install-template: copy template/CLAUDE.md and template/.claude into `kb-root'.
+Existing files are overwritten; files only present in the destination are kept."
+  (let ((rest (kb--extract-root args))
+        (root (file-name-as-directory kb-root))
+        (n 0))
+    (when rest (kb--usage))
+    (unless (file-directory-p root)
+      (princ (format "kb: no such directory: %s\n" root))
+      (kill-emacs 2))
+    (dolist (src (directory-files-recursively kb--template-dir "" nil))
+      (let* ((rel (file-relative-name src kb--template-dir))
+             (dest (expand-file-name rel root)))
+        (make-directory (file-name-directory dest) t)
+        (copy-file src dest t)
+        (setq n (1+ n))
+        (princ (format "%s\n" rel))))
+    (princ (format "installed %d file(s) into %s\n" n root))
+    (kill-emacs 0)))
+
 ;;;; Entry point
 
 (defun kb-main ()
@@ -922,6 +949,7 @@ keywords plus the heading's own tags.  Sorted by date (undated last), then file.
       ("refile" (kb-cmd-refile (cdr args)))
       ("query" (kb-cmd-query (cdr args)))
       ("agenda-export" (kb-cmd-agenda-export (cdr args)))
+      ("install-template" (kb-cmd-install-template (cdr args)))
       ("state" (kb-cmd-state (cdr args)))
       ("schedule" (kb--cmd-planning (cdr args) 'schedule))
       ("deadline" (kb--cmd-planning (cdr args) 'deadline))
