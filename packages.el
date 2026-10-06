@@ -27,7 +27,6 @@
 (package! command-log-mode
   :recipe (:host github :repo "lewang/command-log-mode"))
 
-(package! treesit-auto)
 (package! hyperbole)
 (package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))
 (package! prodigy :recipe (:host github :repo "rejeep/prodigy.el"))
