@@ -14,8 +14,6 @@
 (package! consult-denote)
 (package! magit-delta)
 
-(package! chatgpt-shell)
-
 (unpin! lsp-mode)
 
 (package! exercism)
@@ -33,9 +31,6 @@
 (package! hyperbole)
 (package! lsp-tailwindcss :recipe (:host github :repo "merrickluo/lsp-tailwindcss"))
 (package! prodigy :recipe (:host github :repo "rejeep/prodigy.el"))
-(package! shell-maker)
-(package! acp :recipe (:host github :repo "xenodium/acp.el"))
-(package! agent-shell :recipe (:host github :repo "xenodium/agent-shell"))
 (package! majutsu :recipe (:host github :repo "0WD0/majutsu"))
 (package! claude-code :recipe (:host github :repo "stevemolitor/claude-code.el"))
 (package! ghostel)

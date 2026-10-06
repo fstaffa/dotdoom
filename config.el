@@ -393,18 +393,7 @@ Fetching is done synchronously."
   (auth-source-pick-first-password :host "api.anthropic.com"))
 (auth-source-forget-all-cached)
 
-(use-package! chatgpt-shell
-  :config (setq chatgpt-shell-openai-key 'personal/openai-auth-token
-                chatgpt-shell-anthropic-key 'personal/anthropic-auth-token
-                chatgpt-shell-default-model "claude-3-7-sonnet-20250219"
-                chatgpt-shell-default-backend 'anthropic))
-
-(use-package! claude-code
-  :after transient
-  :defer t
-  :config
-  (setq claude-code-terminal-backend 'ghostel)
-  (claude-code-mode))
+(load! "claude")
 
 ;; Keep the native module outside the straight tree so `doom sync' doesn't wipe it.
 (use-package! ghostel
@@ -423,109 +412,6 @@ Fetching is done synchronously."
 (map! :leader
       :desc "Terminal (project)" "o t" #'ghostel-project
       :desc "Terminal (here)"    "o T" #'ghostel)
-
-(map! :leader
-      :desc "Claude Code transient menu" "l c" #'claude-code-transient)
-
-(map! "C-c c" #'claude-code-transient)
-
-;; ESC leaves evil insert state, so Claude (interrupt) gets C-g instead.
-(after! claude-code
-  (add-hook 'claude-code-start-hook
-            (defun personal/claude-send-escape-key ()
-              (when (bound-and-true-p evil-local-mode)
-                (evil-local-set-key 'insert (kbd "C-g") #'claude-code-send-escape)))))
-
-(map! :leader
-      (:prefix ("l" . "llm")
-       :desc "Claude: new instance"    "n" #'claude-code-new-instance
-       :desc "Claude: resume session"  "r" #'claude-code-resume
-       :desc "Claude: cycle mode"      "m" #'claude-code-cycle-mode
-       :desc "Claude: switch instance" "s" #'claude-code-switch-to-buffer
-       :desc "Claude: toggle window"   "t" #'claude-code-toggle
-       :desc "Claude: new worktree"    "w" #'personal/claude-worktree-new
-       :desc "Claude: remove worktree" "W" #'personal/claude-worktree-remove))
-
-;; Worktree workflow: one git worktree + one Doom workspace + one Claude
-;; session per task. Worktrees live outside the repo (and outside the
-;; projectile search path) in ~/data/worktrees/<repo>/<branch>/.
-(defconst personal/worktree-root (expand-file-name "~/data/worktrees/"))
-
-(defun personal/worktree--main-repo ()
-  "Return the main checkout directory of the repo containing `default-directory'."
-  (let ((common (magit-git-string "rev-parse" "--path-format=absolute" "--git-common-dir")))
-    (unless common (user-error "Not in a git repository"))
-    (file-name-as-directory (file-name-directory (directory-file-name common)))))
-
-(defun personal/worktree--workspace-name (dir)
-  "Doom workspace name (<repo>:<branch>) for worktree DIR."
-  (let ((dir (directory-file-name dir)))
-    (format "%s:%s"
-            (file-name-nondirectory (directory-file-name (file-name-directory dir)))
-            (file-name-nondirectory dir))))
-
-(defun personal/claude-worktree-new (branch)
-  "Create a git worktree for BRANCH, open it in its own workspace and start Claude."
-  (interactive "sBranch: ")
-  (when (or (string-empty-p branch) (string-prefix-p "-" branch))
-    (user-error "Invalid branch name: %S" branch))
-  (let* ((main (personal/worktree--main-repo))
-         (repo (file-name-nondirectory (directory-file-name main)))
-         (dir (file-name-as-directory
-               (expand-file-name (replace-regexp-in-string "/" "-" branch)
-                                 (expand-file-name repo personal/worktree-root))))
-         (default-directory main)
-         (ref-exists (lambda (ref)
-                       (zerop (call-process "git" nil nil nil "show-ref" "--verify" "--quiet" ref)))))
-    (if (file-exists-p dir)
-        ;; Re-running after a failed start reuses the worktree, but only for the same
-        ;; branch (`feature/x' and `feature-x' map to the same directory).
-        (let ((current (let ((default-directory dir))
-                         (string-trim (with-output-to-string
-                                        (with-current-buffer standard-output
-                                          (call-process "git" nil t nil "rev-parse" "--abbrev-ref" "HEAD")))))))
-          (unless (equal current branch)
-            (user-error "%s already exists on branch %s" dir current)))
-      (make-directory (file-name-directory (directory-file-name dir)) t)
-      (with-temp-buffer
-        (unless (zerop (cond
-                        ((funcall ref-exists (concat "refs/heads/" branch))
-                         (call-process "git" nil t nil "worktree" "add" dir branch))
-                        ((funcall ref-exists (concat "refs/remotes/origin/" branch))
-                         (call-process "git" nil t nil "worktree" "add" "--track" "-b" branch
-                                       dir (concat "origin/" branch)))
-                        (t (call-process "git" nil t nil "worktree" "add" "-b" branch dir))))
-          (user-error "git worktree add failed: %s" (string-trim (buffer-string))))))
-    (+workspace-switch (personal/worktree--workspace-name dir) t)
-    (let ((default-directory dir))
-      (dired dir)
-      (claude-code '(4)))))
-
-(defun personal/claude-worktree-remove ()
-  "Remove a worktree under `personal/worktree-root': Claude buffer, workspace, worktree."
-  (interactive)
-  (let* ((main (personal/worktree--main-repo))
-         (default-directory main)
-         (candidates (seq-filter
-                      (lambda (p) (string-prefix-p personal/worktree-root p))
-                      (mapcar (lambda (w) (expand-file-name (car w))) (magit-list-worktrees))))
-         (dir (file-name-as-directory
-               (or (and candidates (completing-read "Remove worktree: " candidates nil t))
-                   (user-error "No worktrees under %s" personal/worktree-root))))
-         (ws (personal/worktree--workspace-name dir)))
-    (when (yes-or-no-p (format "Remove worktree %s and its workspace? " dir))
-      ;; Remove the worktree first: if it is kept, the Claude session must survive.
-      (with-temp-buffer
-        (unless (zerop (call-process "git" nil t nil "worktree" "remove" dir))
-          (if (yes-or-no-p (format "%s\nForce removal? " (string-trim (buffer-string))))
-              (call-process "git" nil nil nil "worktree" "remove" "--force" dir)
-            (user-error "Worktree kept"))))
-      (require 'claude-code)
-      (dolist (buf (claude-code--find-claude-buffers-for-directory dir))
-        (claude-code--kill-buffer buf))
-      (when (+workspace-exists-p ws)
-        (+workspace/kill ws))
-      (message "Removed worktree %s" dir))))
 
 (defun personal/gitlab-set-token (&rest ARG)
   (if (null lab-token)
@@ -866,7 +752,9 @@ Fetching is done synchronously."
 (add-hook 'tsx-ts-mode-hook #'my/use-literal-tabs)
 (add-hook 'js-mode-hook #'my/use-literal-tabs)
 
-(require 'acp)
-(require 'agent-shell)
-(setq agent-shell-anthropic-authentication
-      (agent-shell-anthropic-make-authentication :login t))
+;; Open the Doom config (SPC f p / SPC f P) in its own "doom" workspace.
+(defun personal/switch-to-doom-workspace (&rest _)
+  (when (bound-and-true-p persp-mode)
+    (+workspace-switch "doom" t)))
+(advice-add 'doom/find-file-in-private-config :before #'personal/switch-to-doom-workspace)
+(advice-add 'doom/open-private-config :before #'personal/switch-to-doom-workspace)
