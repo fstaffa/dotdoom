@@ -85,6 +85,40 @@ Denote; the buffer follows the file."
 (add-hook 'org-mode-hook
           (lambda () (add-hook 'after-save-hook #'personal/kb-sync-todo-tag nil t)))
 
+(defun personal/kb-log-done-to-daily ()
+  "Append the task just marked DONE to today's daily (created if missing).
+For `org-after-todo-state-change-hook'.  The entry goes under a `* Done' heading as
+`- TEXT ([[denote:ID]])', linking to the note holding the task when it has an ID."
+  (when-let* (((equal org-state "DONE"))
+              (file buffer-file-name)
+              ((string-prefix-p (file-name-as-directory (expand-file-name personal/kb-root))
+                                (file-name-directory file))))
+    (require 'denote-journal)
+    (let* ((text (org-get-heading t t t t))
+           (id (denote-retrieve-filename-identifier file))
+           (line (format "- %s%s\n" text (if id (format " ([[denote:%s]])" id) "")))
+           (daily (denote-journal-path-to-new-or-existing-entry)))
+      (unless (file-equal-p daily file)
+        (with-current-buffer (find-file-noselect daily)
+          ;; Don't write out the user's unsaved edits as a side effect.
+          (let ((was-modified (buffer-modified-p)))
+          (save-excursion
+            (save-restriction
+              (widen)
+              (goto-char (point-min))
+              (if (re-search-forward "^\\* Done$" nil t)
+                  ;; end of this section: just before the next heading or at EOF
+                  (progn (outline-next-heading)
+                         (unless (bolp) (insert "\n")))
+                (goto-char (point-max))
+                (unless (bolp) (insert "\n"))
+                (insert "* Done\n"))
+              (insert line)))
+          (unless was-modified (save-buffer))))
+        (message "Logged to %s" (file-name-nondirectory daily))))))
+
+(add-hook 'org-after-todo-state-change-hook #'personal/kb-log-done-to-daily)
+
 ;; The front matter mirrors what `kb new inbox' writes, so `kb validate' accepts it.
 (defun personal/kb-new-inbox-file ()
   "Create an empty inbox capture file in the KB root and leave point in it.
