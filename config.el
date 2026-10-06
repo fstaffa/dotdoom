@@ -1,3 +1,5 @@
+;;; config.el -*- lexical-binding: t; -*-
+
 (use-package! f :ensure t)
 ;; holidays
 (setq holiday-bahai-holidays nil)
@@ -404,14 +406,7 @@ Fetching is done synchronously."
   :config
   (setq ghostel-progress-function #'ghostel-spinner-progress))
 
-(use-package! evil-ghostel
-  :after (ghostel evil)
-  :hook (ghostel-mode . evil-ghostel-mode))
-
-;; Replaces the bindings Doom's vterm module provided.
-(map! :leader
-      :desc "Terminal (project)" "o t" #'ghostel-project
-      :desc "Terminal (here)"    "o T" #'ghostel)
+;; Doom's :term ghostel module provides evil-ghostel and `SPC o t' / `SPC o T'.
 
 (defun personal/gitlab-set-token (&rest ARG)
   (if (null lab-token)

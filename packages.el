@@ -32,5 +32,3 @@
 (package! prodigy :recipe (:host github :repo "rejeep/prodigy.el"))
 (package! majutsu :recipe (:host github :repo "0WD0/majutsu"))
 (package! claude-code :recipe (:host github :repo "stevemolitor/claude-code.el"))
-(package! ghostel)
-(package! evil-ghostel)
