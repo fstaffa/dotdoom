@@ -118,6 +118,7 @@ In config.el:
 - `SPC l b` - `personal/claude-list`: overview of all Claude sessions (RET go to its workspace and show it at the bottom, highlighted session is auto-previewed in a side window (p forces it), x kill, gr refresh, q quit)
 - `SPC l e/f/x/X/E` - Claude: send region / send file / send command / command with context / fix error at point
 - `SPC l w` / `SPC l W` - Claude worktree: create / remove (see below)
+- `SPC l g` - `personal/worktree-list`: overview of all worktrees under `~/data/worktrees/` (columns: repo, branch, state local/remote/MR/final, MR number+state, ahead/behind origin/master with dry-run `git merge-tree` conflict detection, dirty/unpushed, Claude running). MR info is looked up async via `glab mr list --all --source-branch`; merged/closed MR = "final". Keys: RET switch workspace, d delete (extra warning if dirty/unpushed; keeps branch), D delete all final, f/F fetch at point/all repos, m magit-status, o open MR in browser, r/R rebase onto origin/master at point/all behind+clean+conflict-free non-final, gr refresh (re-queries MRs), ? transient menu of all keys, q quit
 
 #### Custom Commands
 - `personal/magit-repolist-fetch` - Fetch all git repositories

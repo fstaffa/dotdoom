@@ -285,20 +285,381 @@
                       (mapcar (lambda (w) (expand-file-name (car w))) (magit-list-worktrees))))
          (dir (file-name-as-directory
                (or (and candidates (completing-read "Remove worktree: " candidates nil t))
-                   (user-error "No worktrees under %s" personal/worktree-root))))
-         (ws (personal/worktree--workspace-name dir)))
+                   (user-error "No worktrees under %s" personal/worktree-root)))))
     (when (yes-or-no-p (format "Remove worktree %s and its workspace? " dir))
-      ;; Remove the worktree first: if it is kept, the Claude session must survive.
-      (with-temp-buffer
-        (unless (zerop (call-process "git" nil t nil "worktree" "remove" dir))
-          (if (yes-or-no-p (format "%s\nForce removal? " (string-trim (buffer-string))))
-              (call-process "git" nil nil nil "worktree" "remove" "--force" dir)
-            (user-error "Worktree kept"))))
-      (require 'claude-code)
-      (dolist (buf (claude-code--find-claude-buffers-for-directory dir))
-        (claude-code--kill-buffer buf))
-      (when (+workspace-exists-p ws)
-        (+workspace/kill ws))
-      (message "Removed worktree %s" dir))))
+      (personal/worktree--remove dir))))
+
+(defun personal/worktree--remove (dir)
+  "Remove worktree DIR: git worktree, Claude buffers and Doom workspace.
+Asks for a forced removal if git refuses (e.g. dirty tree)."
+  (let ((ws (personal/worktree--workspace-name dir))
+        (default-directory (let ((default-directory dir)) (personal/worktree--main-repo))))
+    ;; Remove the worktree first: if it is kept, the Claude session must survive.
+    (with-temp-buffer
+      (unless (zerop (call-process "git" nil t nil "worktree" "remove" dir))
+        (if (yes-or-no-p (format "%s\nForce removal? " (string-trim (buffer-string))))
+            (call-process "git" nil nil nil "worktree" "remove" "--force" dir)
+          (user-error "Worktree kept"))))
+    (require 'claude-code)
+    (dolist (buf (claude-code--find-claude-buffers-for-directory dir))
+      (claude-code--kill-buffer buf))
+    (when (+workspace-exists-p ws)
+      (+workspace/kill ws))
+    (message "Removed worktree %s" dir)))
+
+;; Overview of all worktrees under `personal/worktree-root'.
+;; RET switch, d delete, D delete all final (MR merged/closed), f/F fetch
+;; (at point / all), m magit-status, gr refresh (incl. MR lookup), q quit.
+(defvar personal/worktree-list-buffer "*Claude Worktrees*")
+(defvar personal/worktree-list--rows nil "Alist of (DIR . INFO-plist), see `personal/worktree--info'.")
+(defvar personal/worktree-list--mr (make-hash-table :test 'equal)
+  "DIR -> MR plist (:state :iid :url), `none', `error' or `loading'.")
+
+(defun personal/worktree--git (dir &rest args)
+  "Run git ARGS in DIR; return trimmed stdout, or nil on non-zero exit."
+  (let ((default-directory dir))
+    (with-temp-buffer
+      (when (zerop (apply #'call-process "git" nil '(t nil) nil args))
+        (string-trim (buffer-string))))))
+
+(defun personal/worktree--info (dir)
+  "Local git state of worktree DIR as a plist."
+  (let* ((branch (personal/worktree--git dir "rev-parse" "--abbrev-ref" "HEAD"))
+         (base (seq-find (lambda (r) (personal/worktree--git dir "rev-parse" "--verify" "-q" r))
+                         '("refs/remotes/origin/master" "refs/remotes/origin/main")))
+         (counts (and base (split-string
+                            (or (personal/worktree--git dir "rev-list" "--left-right" "--count"
+                                                        (concat base "...HEAD"))
+                                "")
+                            "[ \t]+" t)))
+         (behind (and (= (length counts) 2) (string-to-number (car counts))))
+         (ahead (and behind (string-to-number (cadr counts))))
+         (remote (and branch (concat "refs/remotes/origin/" branch)))
+         (pushed (and remote (personal/worktree--git dir "rev-parse" "--verify" "-q" remote)))
+         (unpushed (and pushed
+                        (string-to-number
+                         (or (personal/worktree--git dir "rev-list" "--count" (concat remote "..HEAD"))
+                             "0"))))
+         (dirty (not (string-empty-p (or (personal/worktree--git dir "status" "--porcelain") ""))))
+         ;; Dry-run merge of origin/master into HEAD; exit status 1 means conflicts.
+         (conflicts (and behind (> behind 0)
+                         (let ((default-directory dir))
+                           (eql 1 (call-process "git" nil nil nil "merge-tree" "--write-tree"
+                                                "--no-messages" "HEAD" base))))))
+    (list :repo (file-name-nondirectory (directory-file-name (file-name-directory (directory-file-name dir))))
+          :branch (or branch "?")
+          :base (and base (string-remove-prefix "refs/remotes/" base))
+          :behind behind :ahead ahead
+          :pushed (and pushed t) :unpushed unpushed
+          :dirty dirty :conflicts conflicts)))
+
+(defun personal/worktree-list--collect ()
+  (setq personal/worktree-list--rows
+        (mapcar (lambda (dir) (cons dir (personal/worktree--info dir)))
+                (seq-filter (lambda (d) (file-exists-p (expand-file-name ".git" d)))
+                            (mapcar #'file-name-as-directory
+                                    (file-expand-wildcards (concat personal/worktree-root "*/*/")))))))
+
+(defun personal/worktree-list--mr-state (dir)
+  (let ((mr (gethash dir personal/worktree-list--mr)))
+    (and (listp mr) (plist-get mr :state))))
+
+(defun personal/worktree-list--final-p (dir)
+  (member (personal/worktree-list--mr-state dir) '("merged" "closed")))
+
+(defun personal/worktree-list--entries ()
+  (mapcar
+   (lambda (row)
+     (let* ((dir (car row)) (i (cdr row))
+            (mr (gethash dir personal/worktree-list--mr))
+            (mr-state (personal/worktree-list--mr-state dir))
+            (state (cond ((personal/worktree-list--final-p dir) (propertize "final" 'face 'success))
+                         ((equal mr-state "opened") "MR")
+                         ((plist-get i :pushed) "remote")
+                         (t (propertize "local" 'face 'shadow))))
+            (mr-col (cond ((eq mr 'loading) (propertize "…" 'face 'shadow))
+                          ((eq mr 'error) (propertize "?" 'face 'warning))
+                          ((listp mr)
+                           (if mr (format "!%s %s" (plist-get mr :iid)
+                                          (if (equal mr-state "opened") "open" mr-state))
+                             "-"))
+                          (t "-")))
+            (behind (plist-get i :behind)) (ahead (plist-get i :ahead))
+            (vs (cond ((plist-get i :conflicts)
+                       (propertize (format "CONFLICTS (behind %d)" behind) 'face 'error))
+                      ((null behind) "?")
+                      ((and (> behind 0) (> ahead 0)) (format "+%d -%d" ahead behind))
+                      ((> behind 0) (propertize (format "behind %d" behind) 'face 'warning))
+                      ((> ahead 0) (format "ahead %d" ahead))
+                      (t "up to date")))
+            (claude (length (and (featurep 'claude-code)
+                                 (claude-code--find-claude-buffers-for-directory dir)))))
+       (list dir (vector (plist-get i :repo) (plist-get i :branch) state mr-col vs
+                         (concat (if (plist-get i :dirty) "dirty" "")
+                                 (if (> (or (plist-get i :unpushed) 0) 0)
+                                     (format " ↑%d unpushed" (plist-get i :unpushed)) ""))
+                         (if (> claude 0) "yes" "")))))
+   personal/worktree-list--rows))
+
+(define-derived-mode personal/worktree-list-mode tabulated-list-mode "Claude-Worktrees"
+  "Major mode listing all worktrees under `personal/worktree-root'."
+  (setq tabulated-list-format [("Repo" 22 t) ("Branch" 36 t) ("State" 7 t) ("MR" 12 t)
+                               ("vs origin/master" 22 t) ("Local" 18 t) ("Claude" 0 t)]
+        tabulated-list-padding 1
+        tabulated-list-sort-key '("Repo"))
+  (add-hook 'tabulated-list-revert-hook
+            (lambda () (setq tabulated-list-entries (personal/worktree-list--entries)))
+            nil t)
+  (tabulated-list-init-header))
+
+(defun personal/worktree-list--redraw ()
+  (when-let* ((buf (get-buffer personal/worktree-list-buffer)))
+    (with-current-buffer buf (tabulated-list-revert))))
+
+(defun personal/worktree-list--dir ()
+  (or (tabulated-list-get-id) (user-error "No worktree on this line")))
+
+(defun personal/worktree-list--query-mr (dir branch)
+  "Asynchronously look up the MR for BRANCH of worktree DIR with glab."
+  (puthash dir 'loading personal/worktree-list--mr)
+  (let ((default-directory dir)
+        (buf (generate-new-buffer " *glab-mr*")))
+    (make-process
+     :name "glab-mr" :buffer buf :noquery t
+     :command (list "sh" "-c" "exec glab mr list --all --source-branch=\"$1\" -F json 2>/dev/null"
+                    "sh" branch)
+     :sentinel
+     (lambda (proc _)
+       (unless (process-live-p proc)
+         (puthash dir
+                  (with-current-buffer buf
+                    (condition-case nil
+                        (let* ((mrs (and (zerop (process-exit-status proc))
+                                         (json-parse-string (buffer-string) :object-type 'plist
+                                                            :array-type 'list)))
+                               (mr (or (seq-find (lambda (m) (equal (plist-get m :state) "opened")) mrs)
+                                       (car mrs))))
+                          (if (and (listp mrs) (zerop (process-exit-status proc)))
+                              (and mr (list :state (plist-get mr :state) :iid (plist-get mr :iid)
+                                            :url (plist-get mr :web_url)))
+                            'error))
+                      (error 'error)))
+                  personal/worktree-list--mr)
+         (kill-buffer buf)
+         (personal/worktree-list--redraw))))))
+
+(defun personal/worktree-list-refresh ()
+  "Re-read local state and re-query MRs."
+  (interactive)
+  (personal/worktree-list--collect)
+  (dolist (row personal/worktree-list--rows)
+    (personal/worktree-list--query-mr (car row) (plist-get (cdr row) :branch)))
+  (personal/worktree-list--redraw))
+
+(defun personal/worktree-list--fetch (dirs)
+  "Run `git fetch origin' once per repo of worktrees DIRS, then redraw."
+  (let ((repos (delete-dups
+                (delq nil (mapcar (lambda (d)
+                                    (personal/worktree--git
+                                     d "rev-parse" "--path-format=absolute" "--git-common-dir"))
+                                  dirs))))
+        (pending 0))
+    (unless repos (user-error "Nothing to fetch"))
+    (setq pending (length repos))
+    (dolist (repo repos)
+      (let ((default-directory (file-name-directory (directory-file-name repo)))
+            (buf (generate-new-buffer " *git-fetch*")))
+        (make-process
+         :name "git-fetch" :buffer buf :noquery t :command '("git" "fetch" "origin")
+         :sentinel
+         (lambda (proc _)
+           (unless (process-live-p proc)
+             (unless (zerop (process-exit-status proc))
+               (message "git fetch failed in %s: %s" repo
+                        (string-trim (with-current-buffer buf (buffer-string)))))
+             (kill-buffer buf)
+             (when (zerop (cl-decf pending))
+               (personal/worktree-list--collect)
+               (personal/worktree-list--redraw)
+               (message "Fetched %d repo(s)" (length repos))))))))
+    (message "Fetching %d repo(s)..." (length repos))))
+
+(defun personal/worktree-list-fetch ()
+  "Fetch the repo of the worktree at point."
+  (interactive)
+  (personal/worktree-list--fetch (list (personal/worktree-list--dir))))
+
+(defun personal/worktree-list-fetch-all ()
+  "Fetch every repo that has a worktree."
+  (interactive)
+  (personal/worktree-list--fetch (mapcar #'car personal/worktree-list--rows)))
+
+(defun personal/worktree-list--warnings (dir)
+  "Human-readable reasons why deleting DIR could lose work."
+  (let ((i (cdr (assoc dir personal/worktree-list--rows))))
+    (delq nil
+          (list (and (plist-get i :dirty) "uncommitted changes")
+                (and (> (or (plist-get i :unpushed) 0) 0)
+                     (format "%d unpushed commit(s)" (plist-get i :unpushed)))
+                (and (not (plist-get i :pushed))
+                     (not (personal/worktree-list--final-p dir))
+                     (> (or (plist-get i :ahead) 0) 0)
+                     "branch never pushed")))))
+
+(defun personal/worktree-list-delete ()
+  "Delete the worktree at point (folder, Claude buffer, workspace); keeps the branch."
+  (interactive)
+  (let* ((dir (personal/worktree-list--dir))
+         (warn (personal/worktree-list--warnings dir)))
+    (when (yes-or-no-p (format "Delete %s%s? "
+                               dir (if warn (format " [WARNING: %s]" (string-join warn ", ")) "")))
+      (personal/worktree--remove dir)
+      (personal/worktree-list-refresh))))
+
+(defun personal/worktree-list-delete-final ()
+  "Delete all worktrees whose MR is merged or closed."
+  (interactive)
+  (let ((dirs (seq-filter #'personal/worktree-list--final-p (mapcar #'car personal/worktree-list--rows))))
+    (unless dirs (user-error "No final worktrees (MR info may still be loading)"))
+    (when (yes-or-no-p
+           (format "Delete %d final worktree(s)?\n%s\n"
+                   (length dirs)
+                   (mapconcat (lambda (d)
+                                (let ((w (personal/worktree-list--warnings d)))
+                                  (format "  %s%s" (abbreviate-file-name d)
+                                          (if w (format "  [WARNING: %s]" (string-join w ", ")) ""))))
+                              dirs "\n")))
+      (dolist (d dirs)
+        (condition-case err (personal/worktree--remove d)
+          (user-error (message "%s" (error-message-string err)))))
+      (personal/worktree-list-refresh))))
+
+(defun personal/worktree-list-switch ()
+  "Switch to the Doom workspace of the worktree at point (created if missing)."
+  (interactive)
+  (let* ((dir (personal/worktree-list--dir))
+         (ws (personal/worktree--workspace-name dir))
+         (new (not (+workspace-exists-p ws))))
+    (quit-window t)
+    (+workspace-switch ws t)
+    (when new (dired dir))))
+
+(defun personal/worktree-list-magit ()
+  "Open magit-status for the worktree at point."
+  (interactive)
+  (magit-status (personal/worktree-list--dir)))
+
+(defun personal/worktree-list-open-mr ()
+  "Open the MR of the worktree at point in the browser."
+  (interactive)
+  (let ((mr (gethash (personal/worktree-list--dir) personal/worktree-list--mr)))
+    (if (and (listp mr) (plist-get mr :url))
+        (browse-url (plist-get mr :url))
+      (user-error "No MR known for this worktree"))))
+
+(defun personal/worktree-list--rebase (dir)
+  "Rebase worktree DIR onto its base ref. Return nil on success, else an error string.
+Aborts the rebase if it fails."
+  (let* ((i (cdr (assoc dir personal/worktree-list--rows)))
+         (base (plist-get i :base))
+         (default-directory dir))
+    (cond ((not base) "no origin/master")
+          ((plist-get i :dirty) "uncommitted changes")
+          ((plist-get i :conflicts) "would conflict")
+          (t (with-temp-buffer
+               (if (zerop (call-process "git" nil t nil "rebase" base))
+                   nil
+                 (call-process "git" nil nil nil "rebase" "--abort")
+                 (string-trim (buffer-string))))))))
+
+(defun personal/worktree-list-rebase ()
+  "Rebase the worktree at point onto origin/master (refused if dirty or conflicting)."
+  (interactive)
+  (let* ((dir (personal/worktree-list--dir))
+         (err (personal/worktree-list--rebase dir)))
+    (personal/worktree-list-refresh)
+    (if err (user-error "Not rebased: %s" err) (message "Rebased %s" (abbreviate-file-name dir)))))
+
+(defun personal/worktree-list-rebase-all ()
+  "Rebase all behind, clean, non-final, conflict-free worktrees onto origin/master."
+  (interactive)
+  (let ((dirs (seq-filter
+               (lambda (d)
+                 (let ((i (cdr (assoc d personal/worktree-list--rows))))
+                   (and (> (or (plist-get i :behind) 0) 0)
+                        (not (plist-get i :conflicts))
+                        (not (plist-get i :dirty))
+                        (not (personal/worktree-list--final-p d)))))
+               (mapcar #'car personal/worktree-list--rows))))
+    (unless dirs (user-error "Nothing to rebase"))
+    (when (yes-or-no-p (format "Rebase %d worktree(s) onto origin/master?\n%s\n"
+                               (length dirs)
+                               (mapconcat (lambda (d) (concat "  " (abbreviate-file-name d))) dirs "\n")))
+      (let (failed)
+        (dolist (d dirs)
+          (when-let* ((err (personal/worktree-list--rebase d)))
+            (push (format "%s: %s" (abbreviate-file-name d) err) failed)))
+        (personal/worktree-list-refresh)
+        (message "Rebased %d, failed %d%s" (- (length dirs) (length failed)) (length failed)
+                 (if failed (concat "\n" (string-join failed "\n")) ""))))))
+
+(defun personal/worktree-list-quit ()
+  (interactive)
+  (quit-window t))
+
+(require 'transient) ; the macro must be available when this file is loaded
+(transient-define-prefix personal/worktree-list-menu ()
+  "Worktree list actions."
+  [["Go"
+    ("RET" "Switch workspace" personal/worktree-list-switch)
+    ("m" "Magit status" personal/worktree-list-magit)
+    ("o" "Open MR in browser" personal/worktree-list-open-mr)]
+   ["Git"
+    ("f" "Fetch repo at point" personal/worktree-list-fetch)
+    ("F" "Fetch all repos" personal/worktree-list-fetch-all)
+    ("r" "Rebase at point" personal/worktree-list-rebase)
+    ("R" "Rebase all clean" personal/worktree-list-rebase-all)
+    ("g" "Refresh (incl. MRs)" personal/worktree-list-refresh)]
+   ["Delete"
+    ("d" "Delete at point" personal/worktree-list-delete)
+    ("D" "Delete all final" personal/worktree-list-delete-final)]])
+
+(dolist (b '(("RET" . personal/worktree-list-switch) ("d" . personal/worktree-list-delete)
+             ("D" . personal/worktree-list-delete-final) ("f" . personal/worktree-list-fetch)
+             ("F" . personal/worktree-list-fetch-all) ("m" . personal/worktree-list-magit)
+             ("o" . personal/worktree-list-open-mr) ("r" . personal/worktree-list-rebase)
+             ("R" . personal/worktree-list-rebase-all)
+             ("?" . personal/worktree-list-menu) ("q" . personal/worktree-list-quit)))
+  (define-key personal/worktree-list-mode-map (kbd (car b)) (cdr b)))
+(after! evil
+  (evil-define-key 'normal personal/worktree-list-mode-map
+    (kbd "RET") #'personal/worktree-list-switch
+    "d" #'personal/worktree-list-delete
+    "D" #'personal/worktree-list-delete-final
+    "f" #'personal/worktree-list-fetch
+    "F" #'personal/worktree-list-fetch-all
+    "m" #'personal/worktree-list-magit
+    "o" #'personal/worktree-list-open-mr
+    "r" #'personal/worktree-list-rebase
+    "R" #'personal/worktree-list-rebase-all
+    "gr" #'personal/worktree-list-refresh
+    "?" #'personal/worktree-list-menu
+    "q" #'personal/worktree-list-quit))
+(define-key personal/worktree-list-mode-map (kbd "g") #'personal/worktree-list-refresh)
+
+(defun personal/worktree-list ()
+  "List all worktrees with their git/MR state."
+  (interactive)
+  (require 'claude-code)
+  (with-current-buffer (get-buffer-create personal/worktree-list-buffer)
+    (personal/worktree-list-mode)
+    (personal/worktree-list--collect)
+    (setq tabulated-list-entries (personal/worktree-list--entries))
+    (tabulated-list-print))
+  (pop-to-buffer personal/worktree-list-buffer)
+  (personal/worktree-list-refresh)
+  (message "? for menu"))
+
+(map! :leader :desc "Claude: list worktrees" "l g" #'personal/worktree-list)
 
 (provide 'claude)
