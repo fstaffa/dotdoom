@@ -164,7 +164,27 @@ empty file behind; `kb validate' accepts it."
   (setq denote-journal-directory nil   ; nil = `denote-directory'
         denote-journal-keyword "daily"
         denote-journal-title-format "%Y-%m-%d")
-  (add-hook 'calendar-mode-hook #'denote-journal-calendar-mode))
+  (add-hook 'calendar-mode-hook #'denote-journal-calendar-mode)
+  ;; Evil's normal-state calendar bindings shadow the minor mode's plain keys.
+  (evil-define-minor-mode-key 'normal 'denote-journal-calendar-mode
+    "N" #'denote-journal-calendar-new-or-existing
+    "F" #'denote-journal-calendar-find-file)
+  ;; The note opens in another window; close the calendar once it is shown.
+  (defun personal/kb-close-calendar (&rest _)
+    (when-let* ((buf (get-buffer calendar-buffer)))
+      (dolist (win (get-buffer-window-list buf nil t))
+        (when (cdr (window-list (window-frame win)))
+          (delete-window win)))
+      (kill-buffer buf)))
+  (advice-add 'denote-journal-calendar-new-or-existing :after #'personal/kb-close-calendar)
+  (advice-add 'denote-journal-calendar-find-file :after #'personal/kb-close-calendar))
+
+(defun personal/kb-daily-via-calendar ()
+  "Open the calendar; pick a date and press N (new/existing daily) or F (find)."
+  (interactive)
+  (require 'denote-journal)
+  (calendar)
+  (message "Move to a date, then N: new/existing daily, F: find existing"))
 
 (with-eval-after-load 'denote
   (denote-rename-buffer-mode 1)
@@ -192,7 +212,7 @@ empty file behind; `kb validate' accepts it."
        :desc "Rename (retag)"     "r" #'denote-rename-file
        :desc "Archive note"       "a" #'personal/kb-archive-note
        :desc "Today's daily"      "d" #'denote-journal-new-or-existing-entry
-       :desc "Daily via calendar" "D" #'denote-journal-calendar-new-or-existing
+       :desc "Daily via calendar" "D" #'personal/kb-daily-via-calendar
        :desc "Inbox"              "I" #'personal/kb-open-inbox))
 
 (provide 'kb-denote)

@@ -49,7 +49,13 @@
   (add-hook 'claude-code-start-hook
             (defun personal/claude-send-escape-key ()
               (when (bound-and-true-p evil-local-mode)
-                (evil-local-set-key 'insert (kbd "C-g") #'claude-code-send-escape)))))
+                (evil-local-set-key 'insert (kbd "C-g") #'claude-code-send-escape))))
+
+  ;; ghostel's native PTY handle is a pipe process, so `kill-process' fails with
+  ;; "not a subprocess"; killing the buffer makes ghostel terminate the child itself.
+  (cl-defmethod claude-code--term-kill-process ((_backend (eql ghostel)) buffer)
+    (when (buffer-live-p buffer)
+      (kill-buffer buffer))))
 
 (defun personal/claude--ensure-workspace ()
   "From the default workspace, switch to one named after the current project."

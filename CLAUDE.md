@@ -82,7 +82,7 @@ In config.el:
 - **Tree-sitter** - Enhanced syntax highlighting for supported languages
 
 #### Org Mode & Productivity
-- **Denote** - Note-taking/knowledge base (replaced org-roam), flat files in `~/data/org-mode/` (`personal/kb-root`), which is also `org-directory`. Config in `kb-denote.el`, with `denote-journal`, `denote-org` and `consult-denote`. Keybindings under `SPC n d` (find, grep, link, backlinks, new, rename, archive, daily, inbox)
+- **Denote** - Note-taking/knowledge base (replaced org-roam), flat files in `~/data/org-mode/` (`personal/kb-root`), which is also `org-directory`. Config in `kb-denote.el`, with `denote-journal`, `denote-org` and `consult-denote`. Keybindings under `SPC n d` (find, grep, link, backlinks, new, rename, archive, daily, inbox). `SPC n d D` opens the calendar (`personal/kb-daily-via-calendar`), where `N`/`F` create/find a daily. Evil shadows plain minor-mode keys, so such bindings need `evil-define-minor-mode-key`
 - **Org-agenda** - Task management; agenda files are `tasks.org` plus notes with the `todo` keyword (not `archive`) in the KB root (`personal/kb-agenda-files`). The `todo` filetag is kept in sync on save (`personal/kb-sync-todo-tag`). Marking a task DONE in any KB note appends it to today's daily (created if missing) under `* Done` with a `[[denote:ID]]` link to the source note (`personal/kb-log-done-to-daily`, on `org-after-todo-state-change-hook`)
 - **Org-super-agenda** - Enhanced agenda view with custom grouping
 - Custom capture templates for tasks, people, and notes
