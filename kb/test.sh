@@ -155,8 +155,14 @@ cmd state-next 0 "^tasks.org:1: \* NEXT Send estimate :work:$" state tasks.org "
 contains tags-not-realigned "$b/tasks.org" "^\* NEXT Send estimate :work:$"
 contains body-preserved     "$b/tasks.org" "^Body text.$"
 cmd state-done 0 "CLOSED: \[" state tasks.org "Send estimate" DONE
+today=$(date +%Y-%m-%d)
+daily=$(ls "$b"/*--"$today"__daily.org 2>/dev/null | head -1)
+contains done-creates-daily "$daily" "^\* Done$"
+contains done-logged        "$daily" "^- Send estimate$"
 cmd state-reopen 0 "^tasks.org:1: \* TODO" state tasks.org "Send estimate" TODO
 if grep -q "CLOSED" "$b/tasks.org"; then echo "FAIL reopen keeps CLOSED"; fail=1; else echo "ok   reopen-removes-closed"; fi
+cmd state-done-again 0 "CLOSED: \[" state tasks.org "Send estimate" DONE
+if [ "$(grep -c '^- Send estimate$' "$daily")" = 1 ]; then echo "ok   done-not-logged-twice"; else echo "FAIL done logged twice"; fail=1; fi
 cmd state-none 0 "^tasks.org:1: \* Send estimate" state tasks.org "Send estimate" none
 cmd schedule-none 0 "" schedule tasks.org "Send estimate" none
 contains schedule-removed-keeps-deadline "$b/tasks.org" "DEADLINE: <2026-10-12 Mon>"

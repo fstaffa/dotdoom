@@ -102,19 +102,25 @@ For `org-after-todo-state-change-hook'.  The entry goes under a `* Done' heading
         (with-current-buffer (find-file-noselect daily)
           ;; Don't write out the user's unsaved edits as a side effect.
           (let ((was-modified (buffer-modified-p)))
-          (save-excursion
-            (save-restriction
-              (widen)
-              (goto-char (point-min))
-              (if (re-search-forward "^\\* Done$" nil t)
-                  ;; end of this section: just before the next heading or at EOF
-                  (progn (outline-next-heading)
-                         (unless (bolp) (insert "\n")))
-                (goto-char (point-max))
-                (unless (bolp) (insert "\n"))
-                (insert "* Done\n"))
-              (insert line)))
-          (unless was-modified (save-buffer))))
+            (save-excursion
+              (save-restriction
+                (widen)
+                (goto-char (point-min))
+                (if (re-search-forward "^\\* Done$" nil t)
+                    (let* ((beg (point))
+                           ;; end of this section: just before the next heading or at EOF
+                           (end (save-excursion (outline-next-heading) (point))))
+                      ;; Re-marking a task DONE must not log it twice.
+                      (unless (save-excursion
+                                (goto-char beg)
+                                (search-forward (concat "\n" line) end t))
+                        (goto-char end)
+                        (unless (bolp) (insert "\n"))
+                        (insert line)))
+                  (goto-char (point-max))
+                  (unless (bolp) (insert "\n"))
+                  (insert "* Done\n" line))))
+            (when (and (buffer-modified-p) (not was-modified)) (save-buffer))))
         (message "Logged to %s" (file-name-nondirectory daily))))))
 
 (add-hook 'org-after-todo-state-change-hook #'personal/kb-log-done-to-daily)
@@ -145,6 +151,33 @@ empty file behind; `kb validate' accepts it."
     (if files
         (dired (cons root files))
       (message "Inbox is empty"))))
+
+;; Quick capture: write the task in an org-capture buffer and link related notes inline.
+(defun personal/kb-insert-link ()
+  "Insert a `[[denote:ID][Title]]' link to any KB note (person, project, ...) at point.
+Meant for the capture buffer, which has no file, so `denote-link' does not apply."
+  (interactive)
+  (require 'denote)
+  (let* ((cands (cl-loop for f in (denote-directory-files "\\.org\\'")
+                         for kws = (denote-extract-keywords-from-path f)
+                         unless (member "archive" kws)
+                         collect (cons (format "%s  [%s]" (denote-retrieve-filename-title f)
+                                               (string-join kws " "))
+                                       f)))
+         (choice (completing-read "Link to: " cands nil t))
+         (file (cdr (assoc choice cands))))
+    (insert (format "[[denote:%s][%s]]" (denote-retrieve-filename-identifier file)
+                    (denote-retrieve-filename-title file)))))
+
+(with-eval-after-load 'org-capture
+  (define-key org-capture-mode-map (kbd "C-c i") #'personal/kb-insert-link))
+
+(defun personal/kb-capture ()
+  "Start a task capture: w = work, p = personal.
+In the buffer: `C-c i' links a note, `C-c C-c' saves to tasks.org, `C-c C-w' refiles
+to a project/person note instead, `C-c C-s' / `C-c C-d' schedule / set a deadline."
+  (interactive)
+  (org-capture))
 
 (setq denote-directory (expand-file-name personal/kb-root)
       denote-file-type 'org
@@ -213,7 +246,8 @@ empty file behind; `kb validate' accepts it."
        :desc "Archive note"       "a" #'personal/kb-archive-note
        :desc "Today's daily"      "d" #'denote-journal-new-or-existing-entry
        :desc "Daily via calendar" "D" #'personal/kb-daily-via-calendar
-       :desc "Inbox"              "I" #'personal/kb-open-inbox))
+       :desc "Inbox"              "I" #'personal/kb-open-inbox
+       :desc "Capture task"       "c" #'personal/kb-capture))
 
 (provide 'kb-denote)
 ;;; kb-denote.el ends here

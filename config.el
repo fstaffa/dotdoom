@@ -116,7 +116,12 @@
           ("s" "Task (scheduled)" entry (file "tasks.org")
            "* TODO %?\nSCHEDULED: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
           ("d" "Task (deadline)" entry (file "tasks.org")
-           "* TODO %?\nDEADLINE: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n"))))
+           "* TODO %?\nDEADLINE: %^t\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+          ;; used by `personal/kb-capture' (SPC n d c); link notes inline with C-c i
+          ("w" "Work task" entry (file "tasks.org")
+           "* TODO %?  :work:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n")
+          ("p" "Personal task" entry (file "tasks.org")
+           "* TODO %?  :personal:\n:PROPERTIES:\n:CAPTURED: %U\n:END:\n"))))
 
 ;; fix org-capture-mode not starting correctly after org agenda https://github.com/doomemacs/doomemacs/issues/5714
 (after! org
@@ -432,16 +437,16 @@ Fetching is done synchronously."
   :defer t
   :init
   (setq ghostel-module-directory (expand-file-name "~/.local/share/ghostel/")
-
-(defun personal/gitlab-set-token (&rest ARG)
-  (if (null lab-token)
-      (setq lab-token (auth-source-pick-first-password :host "gitlab.com/api"))))
-
         ghostel-module-auto-install 'download)
   :config
   (setq ghostel-progress-function #'ghostel-spinner-progress))
 
 ;; Doom's :term ghostel module provides evil-ghostel and `SPC o t' / `SPC o T'.
+
+(defun personal/gitlab-set-token (&rest ARG)
+  (if (null lab-token)
+      (setq lab-token (auth-source-pick-first-password :host "gitlab.com/api"))))
+
 (use-package! lab
   :config (setq lab-host "https://gitlab.com"
 

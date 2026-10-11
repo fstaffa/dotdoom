@@ -83,7 +83,7 @@ In config.el:
 
 #### Org Mode & Productivity
 - **Denote** - Note-taking/knowledge base (replaced org-roam), flat files in `~/data/org-mode/` (`personal/kb-root`), which is also `org-directory`. Config in `kb-denote.el`, with `denote-journal`, `denote-org` and `consult-denote`. Keybindings under `SPC n d` (find, grep, link, backlinks, new, rename, archive, daily, inbox). `SPC n d D` opens the calendar (`personal/kb-daily-via-calendar`), where `N`/`F` create/find a daily. Evil shadows plain minor-mode keys, so such bindings need `evil-define-minor-mode-key`
-- **Org-agenda** - Task management; agenda files are `tasks.org` plus notes with the `todo` keyword (not `archive`) in the KB root (`personal/kb-agenda-files`). The `todo` filetag is kept in sync on save (`personal/kb-sync-todo-tag`). Marking a task DONE in any KB note appends it to today's daily (created if missing) under `* Done` with a `[[denote:ID]]` link to the source note (`personal/kb-log-done-to-daily`, on `org-after-todo-state-change-hook`)
+- **Org-agenda** - Task management; agenda files are `tasks.org` plus notes with the `todo` keyword (not `archive`) in the KB root (`personal/kb-agenda-files`). The `todo` filetag is kept in sync on save (`personal/kb-sync-todo-tag`). Marking a task DONE in any KB note appends it to today's daily (created if missing) under `* Done` with a `[[denote:ID]]` link to the source note (`personal/kb-log-done-to-daily`, on `org-after-todo-state-change-hook`); an identical line already under `* Done` is not added again. `kb state FILE HEADING DONE` does the same logging from the CLI (`kb--log-done-to-daily` in `kb/kb.el`), since batch Emacs doesn't run the hook
 - **Org-super-agenda** - Enhanced agenda view with custom grouping
 - Custom capture templates for tasks, people, and notes
 
@@ -111,6 +111,7 @@ In config.el:
 - `SPC w s` - Switch to buffer in other window
 - `SPC o p` - Open Prodigy
 - `SPC o g` - Refresh GitLab todos/MRs/issues into gitlab.org
+- `SPC n d c` - `personal/kb-capture` (kb-denote.el): org-capture menu; `w`/`p` = work/personal task into `tasks.org` (heading tag). In the capture buffer: `C-c i` inserts a `[[denote:ID][Title]]` link to any KB note (`personal/kb-insert-link`), `C-c C-c` saves, `C-c C-w` refiles to a project/person note, `C-c C-s`/`C-c C-d` schedule/deadline
 - `SPC o t` / `SPC o T` - Ghostel terminal: popup at project root / open here (Doom `:term ghostel` defaults)
 - `SPC f p` / `SPC f P` (Doom private config) switch to (or create) a dedicated `doom` workspace first (`personal/switch-to-doom-workspace`)
 - `SPC l l` (also `SPC l t`) - `personal/agent-toggle`: from a shell restore the project layout; otherwise show the project's most recent shell full window, or start one (from the default workspace it first switches to a workspace named after the project)

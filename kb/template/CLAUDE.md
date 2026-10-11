@@ -39,7 +39,7 @@ Run as `~/.doom.d/kb/kb <command>` (KB root = `$KB_ROOT`, default `~/data/org-mo
     kb rename FILE [--title T] [--tags a,b] [--add-tags a,b] [--remove-tags a,b] [--dir DIR]
     kb refile SRC-FILE HEADING DEST-FILE [DEST-HEADING]
     kb query [--state S,S] [--tag T] [--before YYYY-MM-DD] [--undated]
-    kb state FILE HEADING TODO|NEXT|WAITING|DONE|none
+    kb state FILE HEADING TODO|NEXT|WAITING|DONE|none   (DONE also logs the task to today's daily)
     kb schedule FILE HEADING YYYY-MM-DD|none
     kb deadline FILE HEADING YYYY-MM-DD|none
     kb agenda-export [--print]

@@ -600,14 +600,64 @@ Checks and saves the file afterwards and prints the resulting headline and plann
        (kb--commit file (buffer-string) (cdr read))))
     (princ report)))
 
+(defun kb--log-done-to-daily (src text)
+  "Append \"- TEXT ([[denote:ID]])\" to `* Done' in today's daily, creating the daily.
+ID is that of the note SRC holding the task (none for plain files like tasks.org).
+Mirrors `personal/kb-log-done-to-daily' in Emacs: SRC being the daily itself and a
+line already in the section are both skipped."
+  (let* ((notes (kb--notes))
+         (date (format-time-string "%Y-%m-%d"))
+         (daily (seq-find (lambda (n) (and (equal (plist-get n :slug) date)
+                                           (member "daily" (plist-get n :tags))))
+                          notes))
+         (file (if daily
+                   (plist-get daily :file)
+                 (let ((id (kb--free-id notes)))
+                   (expand-file-name (kb--file-name id "" (concat "--" date) '("daily"))
+                                     (file-name-as-directory kb-root)))))
+         (src-id (and (string-match kb--denote-file-regexp (file-name-nondirectory src))
+                      (match-string 1 (file-name-nondirectory src))))
+         (line (format "- %s%s\n" text (if src-id (format " ([[denote:%s]])" src-id) "")))
+         (read (if daily
+                   (kb--read file)
+                 (cons (concat (kb--note-header (substring (file-name-nondirectory file) 0 15)
+                                                date '("daily")))
+                       'utf-8-unix))))
+    (unless (file-equal-p file src)
+      (with-temp-buffer
+        (insert (car read))
+        (goto-char (point-min))
+        (if (re-search-forward "^\\* Done$" nil t)
+            (let* ((beg (point))
+                   (end (save-excursion
+                          (if (re-search-forward "^\\* " nil t) (match-beginning 0) (point-max)))))
+              (unless (save-excursion (goto-char beg) (search-forward (concat "\n" line) end t))
+                (goto-char end)
+                (unless (bolp) (insert "\n"))
+                (insert line)))
+          (goto-char (point-max))
+          (unless (bolp) (insert "\n"))
+          (insert "* Done\n" line))
+        (unless (equal (buffer-string) (car read))
+          (kb--commit file (buffer-string) (cdr read))
+          (princ (format "logged to %s\n" (kb--rel file))))))))
+
 (defun kb-cmd-state (args)
   (pcase (kb--extract-root args)
     (`(,file ,heading ,state)
      (unless (member state (append kb-todo-keywords '("none")))
        (kb--die "unknown state \"%s\" (use %s or none)" state
                 (string-join kb-todo-keywords ", ")))
-     (kb--with-heading file heading
-                       (lambda () (org-todo (if (string= state "none") 'none state)))))
+     (let (text newly-done)
+       (kb--with-heading file heading
+                         (lambda ()
+                           (let ((before (org-get-todo-state)))
+                             (org-todo (if (string= state "none") 'none state))
+                             ;; A repeating task goes back to TODO, so it is not done.
+                             (setq text (org-get-heading t t t t)
+                                   newly-done (and (equal (org-get-todo-state) "DONE")
+                                                   (not (equal before "DONE")))))))
+       (when newly-done (kb--log-done-to-daily (kb--resolve-file file) text))))
     (_ (kb--usage)))
   (kill-emacs 0))
 
@@ -626,6 +676,13 @@ Checks and saves the file afterwards and prints the resulting headline and plann
   (kill-emacs 0))
 
 ;;;; new, rename, refile
+
+(defun kb--note-header (id title tags)
+  "Front matter of a new note, ending with the blank line before the body."
+  (format "#+title:%s\n#+date:       %s\n#+filetags:   :%s:\n#+identifier: %s\n\n"
+          (if (string= title "") "" (concat "      " title))
+          (kb--id-date-stamp id)
+          (string-join tags ":") id))
 
 (defun kb-cmd-new (args)
   (pcase-let* ((`(,opts . ,pos) (kb--split-args (kb--extract-root args) '("--tags" "--body" "--created")))
@@ -654,10 +711,7 @@ Checks and saves the file afterwards and prints the resulting headline and plann
            (name (kb--file-name id "" (if (string= slug "") "" (concat "--" slug)) tags))
            (file (expand-file-name name (file-name-as-directory kb-root)))
            (body (or (cdr (assoc "--body" opts)) ""))
-           (text (concat (format "#+title:%s\n#+date:       %s\n#+filetags:   :%s:\n#+identifier: %s\n\n"
-                                 (if (string= title "") "" (concat "      " title))
-                                 (kb--id-date-stamp id)
-                                 (string-join tags ":") id)
+           (text (concat (kb--note-header id title tags)
                          skeleton
                          body
                          (if (or (string= body "") (string-suffix-p "\n" body)) "" "\n"))))
