@@ -402,6 +402,37 @@ Fetching is done synchronously."
   :defer t
   :init
   (setq ghostel-module-directory (expand-file-name "~/.local/share/ghostel/")
+;; agent-shell: ACP client; talks to `claude-agent-acp' (installed via the Nix config).
+;; Uses the Claude subscription login rather than an API key.
+(use-package! agent-shell
+  :defer t
+  :commands (agent-shell agent-shell-anthropic-start-claude-code)
+  :config
+  (setq agent-shell-anthropic-authentication
+        (agent-shell-anthropic-make-authentication :login t))
+  ;; Off by default upstream; without it the elicitation capability isn't advertised, so
+  ;; claude-agent-acp removes AskUserQuestion from the model's tools.
+  (setq agent-shell-elicitation--experimental-feature-enabled t)
+  ;; Evil's insert-state TAB shadows `agent-shell-mode-map', so TAB couldn't move between
+  ;; question options. While a question is pending, TAB/S-TAB navigate; otherwise they
+  ;; fall through to the normal insert-state TAB (spaces).
+  (defun personal/agent-shell-tab-filter (command)
+    `(menu-item "" nil :filter
+                ,(lambda (&optional _)
+                   (and (derived-mode-p 'agent-shell-mode)
+                        (agent-shell-elicitation--pending-p)
+                        command))))
+  (evil-define-key* 'insert agent-shell-mode-map
+    (kbd "TAB") (personal/agent-shell-tab-filter #'agent-shell-next-item)
+    (kbd "<backtab>") (personal/agent-shell-tab-filter #'agent-shell-previous-item))
+  ;; Doom only sets `completion-styles' once orderless loads, so / and @ completion
+  ;; fell back to prefix matching; load it and match anywhere in the name.
+  (add-hook 'agent-shell-mode-hook
+            (defun personal/agent-shell-completion-styles ()
+              (require 'orderless)
+              (setq-local completion-styles '(orderless basic)))))
+(map! :leader :desc "Agent shell: Claude" "l a" #'agent-shell-anthropic-start-claude-code)
+
         ghostel-module-auto-install 'download)
   :config
   (setq ghostel-progress-function #'ghostel-spinner-progress))
