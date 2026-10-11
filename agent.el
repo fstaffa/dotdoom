@@ -21,16 +21,39 @@
 (defvar-local personal/agent--unseen nil
   "Non-nil when this shell finished a turn while it wasn't focused.")
 
+(defvar-local personal/agent--last-activity nil
+  "`float-time' of the last event from this shell.")
+
+(defvar-local personal/agent--reply-tail ""
+  "Tail of the agent's message text streamed during the current/last turn.")
+
+(defvar-local personal/agent--last-message ""
+  "Raw markdown of the agent's last message (text after the last tool call).")
+
+(defvar-local personal/agent--message-closed nil
+  "Non-nil after a tool call: the next text chunk starts a new message.")
+
+(defun personal/agent--dead-p (buf)
+  "Non-nil when the comint or ACP client process of shell BUF has exited.
+`agent-shell-status' keeps saying `ready' in that case."
+  (or (not (process-live-p (get-buffer-process buf)))
+      (let ((proc (ignore-errors
+                    (map-nested-elt (buffer-local-value 'agent-shell--state buf)
+                                    '(:client :process)))))
+        (and proc (not (process-live-p proc))))))
+
 (defun personal/agent--status (buf)
-  "Status of shell BUF: `blocked', `busy', `done' (finished, unseen) or `idle'."
+  "Status of shell BUF: `dead', `blocked', `busy', `done' (finished, unseen) or `idle'."
   (let ((s (condition-case nil (agent-shell-status :shell-buffer buf) (error 'ready))))
-    (cond ((eq s 'blocked) 'blocked)
+    (cond ((personal/agent--dead-p buf) 'dead)
+          ((eq s 'blocked) 'blocked)
           ((eq s 'busy) 'busy)
           ((buffer-local-value 'personal/agent--unseen buf) 'done)
           (t 'idle))))
 
 (defun personal/agent--status-string (buf)
   (pcase (personal/agent--status buf)
+    ('dead (propertize "dead" 'face 'error))
     ('blocked (propertize "blocked" 'face 'error))
     ('busy (propertize "busy" 'face 'warning))
     ('done (propertize "done" 'face 'success))
@@ -48,11 +71,17 @@
   (and (one-window-p t)
        (personal/agent--buffer-p (window-buffer (selected-window)))))
 
+;; The overview (`personal/agent-list') also takes over the frame, so while it or a full
+;; shell is shown, the layout saved earlier must be kept.
+(defvar personal/agent-list-buffer)
+(defun personal/agent--save-layout ()
+  (unless (or (personal/agent--full-p) (get-buffer-window personal/agent-list-buffer))
+    (puthash (personal/agent--ws) (window-state-get (frame-root-window))
+             personal/agent--layouts)))
+
 (defun personal/agent--display (buffer &optional _alist)
   "Display action: show BUFFER alone in the frame, saving the current layout first."
-  (unless (personal/agent--full-p)
-    (puthash (personal/agent--ws) (window-state-get (frame-root-window))
-             personal/agent--layouts))
+  (personal/agent--save-layout)
   (let ((ignore-window-parameters t))
     (delete-other-windows))
   (let ((win (selected-window)))
@@ -137,6 +166,32 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
            (buf (car (personal/agent--buffers-for dir))))
       (if buf (personal/agent--show buf) (personal/agent-start dir)))))
 
+(defun personal/agent-open-in-project ()
+  "Prompt for a known project and show its agent shell, or start one there."
+  (interactive)
+  (require 'agent-shell)
+  (let* ((dir (expand-file-name (projectile-completing-read "Project: "
+                                                            (projectile-relevant-known-projects))))
+         (buf (car (personal/agent--buffers-for dir))))
+    (if buf
+        (personal/agent--goto buf)
+      (when (bound-and-true-p persp-mode)
+        (let ((name (file-name-nondirectory (directory-file-name dir))))
+          (unless (equal name (+workspace-current-name))
+            (+workspace-switch name t))))
+      (personal/agent-start dir))))
+
+(defun personal/agent-copy-last-message ()
+  "Copy the agent's last message as markdown, without tool calls or usage chrome.
+Falls back to `agent-shell-copy-last-output' when no message was captured (e.g. a
+resumed session)."
+  (interactive)
+  (unless (personal/agent--buffer-p (current-buffer)) (user-error "Not in a shell"))
+  (if (string-empty-p (string-trim personal/agent--last-message))
+      (agent-shell-copy-last-output)
+    (kill-new (string-trim personal/agent--last-message))
+    (message "Copied last message")))
+
 (defun personal/agent-switch ()
   "Pick any agent shell and show it."
   (interactive)
@@ -166,7 +221,7 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
                        (lambda ()
                          (setq personal/agent--refresh-timer nil)
                          (when-let* ((b (get-buffer personal/agent-list-buffer)))
-                           (with-current-buffer b (tabulated-list-revert))))))))
+                           (with-current-buffer b (personal/agent-list--update))))))))
 
 (defun personal/agent--notify (buf message)
   (unless (eq (window-buffer (selected-window)) buf)
@@ -178,6 +233,23 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
 
 (defun personal/agent--on-event (buf event)
   (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq personal/agent--last-activity (float-time))
+      (pcase (map-elt event :event)
+        ('input-submitted (setq personal/agent--reply-tail ""
+                                personal/agent--last-message ""
+                                personal/agent--message-closed nil))
+        ((or 'tool-call-update 'permission-request) (setq personal/agent--message-closed t))
+        ('agent-message-chunk
+         (when personal/agent--message-closed
+           (setq personal/agent--last-message "" personal/agent--message-closed nil))
+         (setq personal/agent--last-message
+               (concat personal/agent--last-message
+                       (or (map-nested-elt event '(:data :text-chunk)) "")))
+         (let ((s (concat personal/agent--reply-tail
+                          (or (map-nested-elt event '(:data :text-chunk)) ""))))
+           (setq personal/agent--reply-tail
+                 (if (> (length s) 400) (substring s -400) s))))))
     (pcase (map-elt event :event)
       ((or 'agent-message-chunk 'tool-call-update) nil)
       ((or 'permission-request 'elicitation-request)
@@ -210,9 +282,25 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
         ;; replay the whole conversation on resume (default `minimal' shows only the title)
         agent-shell-session-restore-verbosity 'full
         agent-shell-display-action '(personal/agent--display)
-        agent-shell-file-display-action '(personal/agent--display-file))
+        agent-shell-file-display-action '(personal/agent--display-file)
+        ;; no banner/news/funding block at startup
+        agent-shell-show-welcome-message nil
+        ;; usage: context indicator in the header, cost, and a summary after each turn
+        agent-shell-show-context-usage-indicator 'detailed
+        agent-shell-show-cost-indicator t
+        agent-shell-show-usage-at-turn-end t
+        ;; UI: values are the upstream defaults, listed here to flip easily
+        agent-shell-header-style (if (display-graphic-p) 'graphical 'text)
+        agent-shell-thought-process-expand-by-default nil
+        agent-shell-tool-use-expand-by-default nil
+        agent-shell-user-message-expand-by-default nil
+        agent-shell-activity-group-expand-by-default 'latest
+        agent-shell-inhibit-system-sleep t) ; only effective on Emacs 31+
   ;; Evil's insert-state C-v is quoted-insert; use it to paste (images too) like a GUI app.
   (evil-define-key* 'insert agent-shell-mode-map (kbd "C-v") #'agent-shell-yank-dwim)
+  ;; Back to the overview from a session without leaving insert state.
+  (evil-define-key* '(insert normal emacs) agent-shell-mode-map
+    (kbd "C-c b") #'personal/agent-list)
   (add-hook 'agent-shell-mode-hook #'personal/agent--setup-buffer)
   (add-hook 'kill-buffer-hook
             (defun personal/agent--killed ()
@@ -245,64 +333,291 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
                      (seq-find (lambda (b) (eq (personal/agent--status b) 'done)) bufs))))
     (if target (personal/agent--goto target) (message "No agent needs attention"))))
 
-;; Overview of all agent shells.  RET go, x kill, gr refresh, q quit.
+;; Overview of all agent shells (`SPC l b').  Sorted by urgency: blocked, done, busy, idle, dead.
+;; RET open+close list, o open (list kept), p live preview, m/u mark, x kill marked/at point,
+;; D kill dead+done, M model, S mode, i interrupt, r restart, f fork, R rename, c new,
+;; gr refresh, ? help, q quit.
+(defvar-local personal/agent-list--marked nil "Shell buffers marked for killing.")
+(defvar-local personal/agent-list--preview-p nil "Non-nil while the live preview follows point.")
+(defvar-local personal/agent-list--preview-window nil)
+(defvar-local personal/agent-list--preview-id nil)
+(defvar-local personal/agent-list--session-window nil
+  "Window beside the overview that shows the opened session.")
+
+(defun personal/agent-list--rank (buf)
+  (pcase (personal/agent--status buf)
+    ('blocked 0) ('done 1) ('busy 2) ('idle 3) (_ 4)))
+
+(defun personal/agent-list--status< (a b)
+  "Sort predicate for the Status column: by urgency, then by project name."
+  (let ((ra (personal/agent-list--rank (car a)))
+        (rb (personal/agent-list--rank (car b))))
+    (if (= ra rb)
+        (string< (aref (cadr a) 1) (aref (cadr b) 1))
+      (< ra rb))))
+
 (define-derived-mode personal/agent-list-mode tabulated-list-mode "Agent-Sessions"
   "Major mode listing all agent shell sessions."
-  (setq tabulated-list-format [("Project" 28 t) ("Status" 8 t) ("Title" 44 t) ("Directory" 0 t)]
+  (setq tabulated-list-format
+        (vector '("" 1 nil) '("Project" 22 t) '("Status" 8 personal/agent-list--status<)
+                '("Mode" 12 t) '("Model" 14 t) '("Ctx" 4 t :right-align t)
+                '("Perm" 4 t :right-align t) '("Age" 5 t :right-align t)
+                '("Title" 30 t) '("Last reply" 44 nil) '("Directory" 0 t))
         tabulated-list-padding 1
-        tabulated-list-sort-key '("Project"))
+        tabulated-list-sort-key '("Status"))
   (add-hook 'tabulated-list-revert-hook #'personal/agent-list--refresh nil t)
+  (add-hook 'kill-buffer-hook #'personal/agent-list--close-preview nil t)
   (tabulated-list-init-header))
 
+(defun personal/agent-list--age (buf)
+  (let ((ts (buffer-local-value 'personal/agent--last-activity buf)))
+    (if (not ts)
+        ""
+      (let ((s (- (float-time) ts)))
+        (cond ((< s 60) "<1m")
+              ((< s 3600) (format "%dm" (/ s 60)))
+              ((< s 86400) (format "%dh" (/ s 3600)))
+              (t (format "%dd" (/ s 86400))))))))
+
+(defun personal/agent-list--reply (buf)
+  (let ((s (string-trim (replace-regexp-in-string
+                         "[ \t\n\r]+" " " (buffer-local-value 'personal/agent--reply-tail buf)))))
+    (if (> (length s) 60) (concat "…" (substring s -59)) s)))
+
+(defun personal/agent-list--entries ()
+  (mapcar
+   (lambda (buf)
+     (let* ((state (buffer-local-value 'agent-shell--state buf))
+            (usage (ignore-errors (map-elt state :usage)))
+            (used (map-elt usage :context-used))
+            (size (map-elt usage :context-size))
+            (perm (or (ignore-errors
+                        (seq-count (lambda (e) (map-elt (cdr e) :permission-request-id))
+                                   (map-elt state :tool-calls)))
+                      0)))
+       (list buf (vector (if (memq buf personal/agent-list--marked) "*" " ")
+                         (personal/agent--project-name buf)
+                         (personal/agent--status-string buf)
+                         (or (ignore-errors (agent-shell-get-mode-name state)) "")
+                         (or (ignore-errors (agent-shell-get-model-name state)) "")
+                         (if (and (numberp used) (numberp size) (> size 0))
+                             (format "%d%%" (round (* 100.0 used) size))
+                             "")
+                         (if (> perm 0) (propertize (number-to-string perm) 'face 'error) "")
+                         (personal/agent-list--age buf)
+                         (or (ignore-errors (map-nested-elt state '(:session :title))) "")
+                         (personal/agent-list--reply buf)
+                         (abbreviate-file-name (personal/agent--dir buf))))))
+   (agent-shell-buffers)))
+
 (defun personal/agent-list--refresh ()
-  (setq tabulated-list-entries
-        (mapcar
-         (lambda (buf)
-           (list buf (vector (personal/agent--project-name buf)
-                             (personal/agent--status-string buf)
-                             (or (ignore-errors
-                                   (map-nested-elt (buffer-local-value 'agent-shell--state buf)
-                                                   '(:session :title)))
-                                 "")
-                             (abbreviate-file-name (personal/agent--dir buf)))))
-         (agent-shell-buffers))))
+  (setq tabulated-list-entries (personal/agent-list--entries)))
+
+(defun personal/agent-list--update ()
+  "Re-render only when the entries changed (called on shell events)."
+  (let ((new (personal/agent-list--entries)))
+    (unless (equal new tabulated-list-entries)
+      (setq tabulated-list-entries new)
+      (tabulated-list-print t))))
 
 (defun personal/agent-list--buffer ()
   (or (tabulated-list-get-id) (user-error "No session on this line")))
 
+;; Live preview: the real shell buffer of the row at point, in a window below the list.
+;; It is shown with `set-window-buffer' (not the full-window display action) and must be
+;; closed before anything that goes through `personal/agent--display', which would save
+;; the preview split as part of the layout to restore.
+(defun personal/agent-list--close-preview ()
+  (when-let* ((b (get-buffer personal/agent-list-buffer)))
+    (with-current-buffer b
+      (when (window-live-p personal/agent-list--preview-window)
+        (ignore-errors (delete-window personal/agent-list--preview-window)))
+      (setq personal/agent-list--preview-window nil
+            personal/agent-list--preview-p nil
+            personal/agent-list--preview-id nil))))
+
+(defun personal/agent-list--show-preview ()
+  (let ((buf (tabulated-list-get-id)))
+    (when (buffer-live-p buf)
+      (unless (window-live-p personal/agent-list--preview-window)
+        (setq personal/agent-list--preview-window
+              (split-window (selected-window) (max 8 (/ (window-height) 3)) 'below)))
+      (set-window-buffer personal/agent-list--preview-window buf)
+      (setq personal/agent-list--preview-id buf))))
+
+(defun personal/agent-list--follow ()
+  (when personal/agent-list--preview-p
+    (if (not (window-live-p personal/agent-list--preview-window))
+        (setq personal/agent-list--preview-p nil)
+      (let ((id (tabulated-list-get-id)))
+        (unless (or (null id) (eq id personal/agent-list--preview-id))
+          (personal/agent-list--show-preview))))))
+
+(defun personal/agent-list-preview ()
+  "Toggle a live preview of the session at point below the list."
+  (interactive)
+  (if personal/agent-list--preview-p
+      (personal/agent-list--close-preview)
+    (setq personal/agent-list--preview-p t)
+    (add-hook 'post-command-hook #'personal/agent-list--follow nil t)
+    (personal/agent-list--show-preview)))
+
+(defun personal/agent-list--open-side (buf select)
+  "Show BUF in the window beside the overview (created on demand); SELECT it if non-nil."
+  (personal/agent-list--close-preview)
+  (let ((win (if (window-live-p personal/agent-list--session-window)
+                 personal/agent-list--session-window
+               (setq personal/agent-list--session-window
+                     (split-window (selected-window) nil 'right)))))
+    (set-window-dedicated-p win nil)
+    (set-window-buffer win buf)
+    (with-current-buffer buf (setq personal/agent--unseen nil))
+    (when select (select-window win))))
+
 (defun personal/agent-list-switch ()
-  "Go to the workspace of the session at point and show it."
+  "Open the session at point beside the overview and select it."
+  (interactive)
+  (personal/agent-list--open-side (personal/agent-list--buffer) t))
+
+(defun personal/agent-list-open ()
+  "Open the session at point beside the overview, staying in the overview."
+  (interactive)
+  (personal/agent-list--open-side (personal/agent-list--buffer) nil))
+
+(defun personal/agent-list-open-full ()
+  "Go to the workspace of the session at point and show it full window."
   (interactive)
   (let ((buf (personal/agent-list--buffer)))
-    (quit-window t)
+    (personal/agent-list--close-preview)
     (personal/agent--goto buf)))
 
-(defun personal/agent-list-kill ()
+(defun personal/agent-list-quit ()
+  "Close the overview and restore the window layout from before it."
+  (interactive)
+  (personal/agent-list--close-preview)
+  (if (gethash (personal/agent--ws) personal/agent--layouts)
+      (personal/agent-leave)
+    (quit-window)))
+
+(defun personal/agent-list--kill-buffers (bufs)
+  (dolist (b bufs) (when (buffer-live-p b) (kill-buffer b)))
+  (setq personal/agent-list--marked nil)
+  (personal/agent-list--update)
+  (when personal/agent-list--preview-p (personal/agent-list--show-preview)))
+
+(defun personal/agent-list-mark ()
   (interactive)
   (let ((buf (personal/agent-list--buffer)))
-    (when (y-or-n-p (format "Kill %s? " (buffer-name buf)))
-      (kill-buffer buf)
-      (tabulated-list-revert))))
+    (cl-pushnew buf personal/agent-list--marked)
+    (personal/agent-list--update)
+    (forward-line 1)))
 
-(define-key personal/agent-list-mode-map (kbd "RET") #'personal/agent-list-switch)
-(define-key personal/agent-list-mode-map (kbd "x") #'personal/agent-list-kill)
-(define-key personal/agent-list-mode-map (kbd "q") #'quit-window)
-(after! evil
-  (evil-define-key 'normal personal/agent-list-mode-map
-    (kbd "RET") #'personal/agent-list-switch
-    "x" #'personal/agent-list-kill
-    "gr" #'tabulated-list-revert
-    "q" #'quit-window))
+(defun personal/agent-list-unmark ()
+  (interactive)
+  (let ((buf (personal/agent-list--buffer)))
+    (setq personal/agent-list--marked (delq buf personal/agent-list--marked))
+    (personal/agent-list--update)
+    (forward-line 1)))
+
+(defun personal/agent-list-kill ()
+  "Kill the marked sessions, or the one at point when none are marked."
+  (interactive)
+  (let ((targets (or (seq-filter #'buffer-live-p personal/agent-list--marked)
+                     (list (personal/agent-list--buffer)))))
+    (when (y-or-n-p (if (cdr targets)
+                        (format "Kill %d sessions? " (length targets))
+                      (format "Kill %s? " (buffer-name (car targets)))))
+      (personal/agent-list--kill-buffers targets))))
+
+(defun personal/agent-list-kill-finished ()
+  "Kill all dead and finished (unseen) sessions."
+  (interactive)
+  (let ((targets (seq-filter (lambda (b) (memq (personal/agent--status b) '(dead done)))
+                             (agent-shell-buffers))))
+    (cond ((null targets) (message "No dead or finished sessions"))
+          ((y-or-n-p (format "Kill %d dead/finished sessions? " (length targets)))
+           (personal/agent-list--kill-buffers targets)))))
+
+(defmacro personal/agent-list--defaction (name doc &rest body)
+  "Define interactive NAME acting on the shell BUF of the row at point."
+  (declare (indent 2))
+  `(defun ,name ()
+     ,doc
+     (interactive)
+     (let ((buf (personal/agent-list--buffer)))
+       ,@body
+       (run-at-time 0.5 nil #'personal/agent--changed))))
+
+(personal/agent-list--defaction personal/agent-list-set-model "Set the model of the session at point."
+  (with-current-buffer buf (call-interactively #'agent-shell-set-session-model)))
+
+(personal/agent-list--defaction personal/agent-list-set-mode "Set the mode of the session at point."
+  (with-current-buffer buf (call-interactively #'agent-shell-set-session-mode)))
+
+(personal/agent-list--defaction personal/agent-list-interrupt "Interrupt the session at point."
+  (with-current-buffer buf (agent-shell-interrupt)))
+
+;; Restart and fork display the new shell full window, so drop the preview split first.
+(personal/agent-list--defaction personal/agent-list-restart "Restart the session at point."
+  (personal/agent-list--close-preview)
+  (with-current-buffer buf (agent-shell-restart)))
+
+(personal/agent-list--defaction personal/agent-list-fork "Fork the session at point."
+  (personal/agent-list--close-preview)
+  (with-current-buffer buf (agent-shell-fork)))
+
+(personal/agent-list--defaction personal/agent-list-rename "Rename the session at point."
+  (shell-maker-set-buffer-name buf (read-string "Rename to: " (buffer-name buf))))
+
+(defun personal/agent-list-new ()
+  "Start a new session in the directory of the session at point."
+  (interactive)
+  (let ((dir (personal/agent--dir (personal/agent-list--buffer))))
+    (personal/agent-list--close-preview)
+    (personal/agent-start dir)))
+
+(defun personal/agent-list-help ()
+  (interactive)
+  (message "RET open beside+select  o open beside  O open full  p preview  m/u mark  x kill  D kill dead/done  M model  S mode  i interrupt  r restart  f fork  R rename  c new  gr refresh  q quit"))
+
+(let ((keys '(("RET" . personal/agent-list-switch) ("o" . personal/agent-list-open)
+              ("O" . personal/agent-list-open-full)
+              ("p" . personal/agent-list-preview) ("m" . personal/agent-list-mark)
+              ("u" . personal/agent-list-unmark) ("x" . personal/agent-list-kill)
+              ("D" . personal/agent-list-kill-finished) ("M" . personal/agent-list-set-model)
+              ("S" . personal/agent-list-set-mode) ("i" . personal/agent-list-interrupt)
+              ("r" . personal/agent-list-restart) ("f" . personal/agent-list-fork)
+              ("R" . personal/agent-list-rename) ("c" . personal/agent-list-new)
+              ("?" . personal/agent-list-help) ("q" . personal/agent-list-quit))))
+  (pcase-dolist (`(,k . ,cmd) keys)
+    (define-key personal/agent-list-mode-map (kbd k) cmd))
+  (after! evil
+    (pcase-dolist (`(,k . ,cmd) keys)
+      (evil-define-key 'normal personal/agent-list-mode-map (kbd k) cmd))
+    (evil-define-key 'normal personal/agent-list-mode-map "gr" #'tabulated-list-revert)))
 
 (defun personal/agent-list ()
-  "List all agent shell sessions."
+  "Show the agent shell overview full frame.
+When it is already visible (e.g. with a session beside it), select it and close the
+session window."
   (interactive)
   (require 'agent-shell)
-  (with-current-buffer (get-buffer-create personal/agent-list-buffer)
-    (personal/agent-list-mode)
-    (personal/agent-list--refresh)
-    (tabulated-list-print))
-  (pop-to-buffer personal/agent-list-buffer))
+  (let ((buf (get-buffer-create personal/agent-list-buffer)))
+    (personal/agent-list--close-preview)
+    (with-current-buffer buf
+      (unless (derived-mode-p 'personal/agent-list-mode)
+        (personal/agent-list-mode))
+      (personal/agent-list--refresh)
+      (tabulated-list-print t))
+    (if-let* ((win (get-buffer-window buf)))
+        (select-window win)
+      (personal/agent--save-layout)
+      (let ((ignore-window-parameters t))
+        (delete-other-windows))
+      (set-window-dedicated-p (selected-window) nil)
+      (switch-to-buffer buf))
+    (let ((ignore-window-parameters t))
+      (delete-other-windows))))
 
 (map! :leader
       (:prefix ("l" . "llm")
@@ -318,8 +633,18 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
        :desc "Agent: send region"      "e" #'agent-shell-send-region
        :desc "Agent: send file"        "f" #'agent-shell-send-file
        :desc "Agent: new worktree"     "w" #'personal/agent-worktree-new
+       :desc "Agent: open in project"  "P" #'personal/agent-open-in-project
+       :desc "Agent: worktree in project" "L" #'personal/agent-worktree-new-in-project
        :desc "Agent: remove worktree"  "W" #'personal/agent-worktree-remove
-       :desc "Agent: list worktrees"   "g" #'personal/worktree-list))
+       :desc "Agent: list worktrees"   "g" #'personal/worktree-list
+       :desc "Agent: set model"        "m" #'agent-shell-set-session-model
+       :desc "Agent: set mode"         "M" #'agent-shell-set-session-mode
+       :desc "Agent: cycle mode"       "C" #'agent-shell-cycle-session-mode
+       :desc "Agent: set thought level" "T" #'agent-shell-set-session-thought-level
+       :desc "Agent: fork session"     "F" #'agent-shell-fork
+       :desc "Agent: copy last message" "y" #'personal/agent-copy-last-message
+       :desc "Agent: open transcript"  "o" #'agent-shell-open-transcript
+       :desc "Agent: help menu"        "?" #'agent-shell-help-menu))
 
 ;; Worktree workflow: one git worktree + one Doom workspace + one agent
 ;; session per task. Worktrees live outside the repo (and outside the
@@ -382,6 +707,16 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resu
     (let ((default-directory dir))
       (dired dir)
       (personal/agent-start dir))))
+
+(defun personal/agent-worktree-new-in-project ()
+  "Prompt for a known project, create a worktree there and start an empty agent session.
+Empty means without file/region context, like `personal/agent-start-bare'."
+  (interactive)
+  (require 'agent-shell) ; must be loaded first so the variable is dynamically bound
+  (let ((default-directory (projectile-completing-read "Project: "
+                                                       (projectile-relevant-known-projects)))
+        (agent-shell-context-sources nil))
+    (call-interactively #'personal/agent-worktree-new)))
 
 (defun personal/agent-worktree-remove ()
   "Remove a worktree under `personal/worktree-root': Agent buffer, workspace, worktree."
@@ -767,5 +1102,8 @@ Aborts the rebase if it fails."
   (pop-to-buffer personal/worktree-list-buffer)
   (personal/worktree-list-refresh)
   (message "? for menu"))
+
+(map! :leader :desc "Agent: open in project" "p l" #'personal/agent-open-in-project
+              :desc "Agent: worktree in project" "p L" #'personal/agent-worktree-new-in-project)
 
 (provide 'agent)
