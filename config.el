@@ -395,13 +395,8 @@ Fetching is done synchronously."
   (auth-source-pick-first-password :host "api.anthropic.com"))
 (auth-source-forget-all-cached)
 
-(load! "claude")
+(load! "agent")
 
-;; Keep the native module outside the straight tree so `doom sync' doesn't wipe it.
-(use-package! ghostel
-  :defer t
-  :init
-  (setq ghostel-module-directory (expand-file-name "~/.local/share/ghostel/")
 ;; agent-shell: ACP client; talks to `claude-agent-acp' (installed via the Nix config).
 ;; Uses the Claude subscription login rather than an API key.
 (use-package! agent-shell
@@ -431,13 +426,17 @@ Fetching is done synchronously."
             (defun personal/agent-shell-completion-styles ()
               (require 'orderless)
               (setq-local completion-styles '(orderless basic)))))
-(map! :leader :desc "Agent shell: Claude" "l a" #'agent-shell-anthropic-start-claude-code)
 
         ghostel-module-auto-install 'download)
   :config
   (setq ghostel-progress-function #'ghostel-spinner-progress))
 
 ;; Doom's :term ghostel module provides evil-ghostel and `SPC o t' / `SPC o T'.
+;; Keep the native module outside the straight tree so `doom sync' doesn't wipe it.
+(use-package! ghostel
+  :defer t
+  :init
+  (setq ghostel-module-directory (expand-file-name "~/.local/share/ghostel/")
 
 (defun personal/gitlab-set-token (&rest ARG)
   (if (null lab-token)

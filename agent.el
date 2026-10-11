@@ -1,63 +1,99 @@
-;;; claude.el --- Claude Code (claude-code.el) setup  -*- lexical-binding: t; -*-
+;;; agent.el --- agent-shell session management  -*- lexical-binding: t; -*-
 
-;; Loaded from config.el.  Terminal backend setup (ghostel) stays in config.el.
+;; Loaded from config.el.  The basic agent-shell setup (login, elicitation, TAB filter)
+;; stays in config.el.  This file adds: full-window layout that restores the project
+;; layout on leave, a session list ("control plane"), notifications, modeline,
+;; next-waiting jump and the worktree workflow.
 
-(use-package! claude-code
-  :after transient
-  :defer t
-  :config
-  (setq claude-code-terminal-backend 'ghostel
-        claude-code-toggle-auto-select t
-        claude-code-display-window-fn
-        (lambda (buffer)
-          (display-buffer buffer '((display-buffer-reuse-window display-buffer-at-bottom)
-                                   (window-height . 0.4))))
-        claude-code-notification-function #'personal/claude-notify)
-  (claude-code-mode)
+(defun personal/agent--buffer-p (buf)
+  (and (buffer-live-p buf)
+       (provided-mode-derived-p (buffer-local-value 'major-mode buf) 'agent-shell-mode)))
 
-  ;; Never ask for an instance name: "default" for the first one, then 2, 3, ...
-  (define-advice claude-code--prompt-for-instance-name
-      (:override (_dir existing-names &optional _force-prompt) personal/auto-name)
-    (if (null existing-names)
-        "default"
-      (let ((n 2))
-        (while (member (number-to-string n) existing-names) (cl-incf n))
-        (number-to-string n)))))
+(defun personal/agent--dir (buf)
+  "Directory the agent shell BUF works in."
+  (with-current-buffer buf (file-name-as-directory (agent-shell-cwd))))
 
-(defun personal/claude-notify (title message)
-  "Desktop notification when Claude is ready and its window isn't focused."
-  (let ((project (or (ignore-errors (file-name-nondirectory
-                                     (directory-file-name (claude-code--directory))))
-                     "claude")))
-    (message "%s: %s (%s)" title message project)
-    (unless (claude-code--buffer-p (window-buffer (selected-window)))
-      (condition-case err
-          (progn (require 'notifications)
-                 (notifications-notify :title title
-                                       :body (format "%s (%s)" message project)
-                                       :app-name "Emacs"))
-        (error (message "Claude notification failed: %S" err))))
-    (claude-code--pulse-modeline)))
+(defun personal/agent--buffers-for (dir)
+  "Agent shells working in DIR, most recently used first."
+  (let ((dir (file-name-as-directory (expand-file-name dir))))
+    (seq-filter (lambda (b) (equal (personal/agent--dir b) dir)) (agent-shell-buffers))))
 
-(map! :leader
-      :desc "Claude Code transient menu" "l c" #'claude-code-transient)
+(defvar-local personal/agent--unseen nil
+  "Non-nil when this shell finished a turn while it wasn't focused.")
 
-(map! "C-c c" #'claude-code-transient)
+(defun personal/agent--status (buf)
+  "Status of shell BUF: `blocked', `busy', `done' (finished, unseen) or `idle'."
+  (let ((s (condition-case nil (agent-shell-status :shell-buffer buf) (error 'ready))))
+    (cond ((eq s 'blocked) 'blocked)
+          ((eq s 'busy) 'busy)
+          ((buffer-local-value 'personal/agent--unseen buf) 'done)
+          (t 'idle))))
 
-;; ESC leaves evil insert state, so Claude (interrupt) gets C-g instead.
-(after! claude-code
-  (add-hook 'claude-code-start-hook
-            (defun personal/claude-send-escape-key ()
-              (when (bound-and-true-p evil-local-mode)
-                (evil-local-set-key 'insert (kbd "C-g") #'claude-code-send-escape))))
+(defun personal/agent--status-string (buf)
+  (pcase (personal/agent--status buf)
+    ('blocked (propertize "blocked" 'face 'error))
+    ('busy (propertize "busy" 'face 'warning))
+    ('done (propertize "done" 'face 'success))
+    (_ (propertize "idle" 'face 'shadow))))
 
-  ;; ghostel's native PTY handle is a pipe process, so `kill-process' fails with
-  ;; "not a subprocess"; killing the buffer makes ghostel terminate the child itself.
-  (cl-defmethod claude-code--term-kill-process ((_backend (eql ghostel)) buffer)
-    (when (buffer-live-p buffer)
-      (kill-buffer buffer))))
+;; Full-window layout: showing a session saves the workspace's window layout and
+;; leaving restores it.  Layouts are kept per workspace name.
+(defvar personal/agent--layouts (make-hash-table :test 'equal))
 
-(defun personal/claude--ensure-workspace ()
+(defun personal/agent--ws ()
+  (if (bound-and-true-p persp-mode) (+workspace-current-name) "none"))
+
+(defun personal/agent--full-p ()
+  "Non-nil when the frame shows a single agent shell window."
+  (and (one-window-p t)
+       (personal/agent--buffer-p (window-buffer (selected-window)))))
+
+(defun personal/agent--display (buffer &optional _alist)
+  "Display action: show BUFFER alone in the frame, saving the current layout first."
+  (unless (personal/agent--full-p)
+    (puthash (personal/agent--ws) (window-state-get (frame-root-window))
+             personal/agent--layouts))
+  (let ((ignore-window-parameters t))
+    (delete-other-windows))
+  (let ((win (selected-window)))
+    (set-window-dedicated-p win nil)
+    (set-window-buffer win buffer)
+    win))
+
+(defun personal/agent--display-file (buffer &optional alist)
+  "Display action for files opened from a shell: restore the project layout, then open."
+  (personal/agent-leave)
+  (display-buffer-same-window buffer alist))
+
+(defun personal/agent-leave ()
+  "Restore the window layout the workspace had before the agent shell took over."
+  (interactive)
+  (let* ((ws (personal/agent--ws))
+         (state (gethash ws personal/agent--layouts)))
+    (cond (state (remhash ws personal/agent--layouts)
+                 (window-state-put state (frame-root-window)))
+          ((personal/agent--buffer-p (current-buffer)) (bury-buffer)))))
+
+(defun personal/agent--show (buf)
+  "Show and focus BUF full window (a no-op if it already is)."
+  (with-current-buffer buf (setq personal/agent--unseen nil))
+  (if (and (personal/agent--full-p) (eq (window-buffer (selected-window)) buf))
+      (selected-window)
+    (select-window (personal/agent--display buf))))
+
+(defun personal/agent--workspace-of (buf)
+  (when-let* (((bound-and-true-p persp-mode))
+              (persp (seq-find (lambda (p) (persp-contain-buffer-p buf p)) (persp-persps))))
+    (safe-persp-name persp)))
+
+(defun personal/agent--goto (buf)
+  "Go to the workspace holding BUF and show it."
+  (let ((ws (personal/agent--workspace-of buf)))
+    (when (and ws (not (equal ws (+workspace-current-name))))
+      (+workspace-switch ws))
+    (personal/agent--show buf)))
+
+(defun personal/agent--ensure-workspace ()
   "From the default workspace, switch to one named after the current project."
   (when (and (bound-and-true-p persp-mode)
              (equal (+workspace-current-name) +workspaces-main)
@@ -66,160 +102,226 @@
      (file-name-nondirectory (directory-file-name (project-root (project-current))))
      t)))
 
-(defun personal/claude-toggle ()
-  "Start, show+focus, or hide the Claude session of the current project."
+(defvar agent-shell-context-sources)
+
+(defun personal/agent-start (&optional dir session-strategy)
+  "Start a Claude agent shell in DIR (default: current project).
+SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resume)."
   (interactive)
-  (require 'claude-code)
-  (let* ((dir (claude-code--directory))
-         (buf (car (claude-code--find-claude-buffers-for-directory dir)))
-         (win (and buf (get-buffer-window buf))))
-    (cond
-     (win (cond ((not (eq win (selected-window))) (select-window win))
-                ((cdr (window-list nil 'no-minibuf)) (delete-window win))
-                (t (bury-buffer))))
-     (buf (pop-to-buffer buf))
-     (t (personal/claude--ensure-workspace)
-        ;; The workspace switch changes the current buffer; keep the original dir.
-        (let ((default-directory dir))
-          (claude-code '(4)))
-        (when-let ((new (car (claude-code--find-claude-buffers-for-directory dir))))
-          (when (bound-and-true-p persp-mode)
-            (persp-add-buffer new)))))))
+  (require 'agent-shell)
+  (let ((dir (or dir (agent-shell-cwd))))
+    (personal/agent--ensure-workspace)
+    (let ((default-directory dir)
+          (agent-shell-session-strategy (or session-strategy agent-shell-session-strategy)))
+      (agent-shell-anthropic-start-claude-code))))
 
-(map! :leader
-      (:prefix ("l" . "llm")
-       :desc "Claude: toggle/start"    "l" #'personal/claude-toggle
-       :desc "Claude: resume session"  "r" #'claude-code-resume
-       :desc "Claude: cycle mode"      "m" #'claude-code-cycle-mode
-       :desc "Claude: switch instance" "s" #'claude-code-switch-to-buffer
-       :desc "Claude: toggle window"   "t" #'personal/claude-toggle
-       :desc "Claude: send region"     "e" #'claude-code-send-region
-       :desc "Claude: send file"       "f" #'claude-code-send-buffer-file
-       :desc "Claude: send command"    "x" #'claude-code-send-command
-       :desc "Claude: command + context" "X" #'claude-code-send-command-with-context
-       :desc "Claude: fix error"       "E" #'claude-code-fix-error-at-point
-       :desc "Claude: new worktree"    "w" #'personal/claude-worktree-new
-       :desc "Claude: remove worktree" "W" #'personal/claude-worktree-remove))
+(defun personal/agent-start-bare ()
+  "Start a Claude agent shell without inserting region/file/line context."
+  (interactive)
+  (require 'agent-shell) ; must be loaded first so the variable is dynamically bound
+  (let ((agent-shell-context-sources nil))
+    (personal/agent-start)))
 
-;; ibuffer-like overview of all Claude sessions.
-;; RET switch, p preview in side window, x kill, g refresh, q quit.
-(defvar personal/claude-list-buffer "*Claude Sessions*")
+(defun personal/agent-resume ()
+  "Start a Claude agent shell and pick a past session to resume."
+  (interactive)
+  (personal/agent-start nil 'prompt))
 
-(define-derived-mode personal/claude-list-mode tabulated-list-mode "Claude-Sessions"
-  "Major mode listing all Claude Code sessions."
-  (setq tabulated-list-format [("Project" 28 t) ("Instance" 10 t) ("State" 6 t) ("Directory" 0 t)]
+(defun personal/agent-toggle ()
+  "Leave the agent shell, or show/start the one of the current project."
+  (interactive)
+  (require 'agent-shell)
+  (if (personal/agent--buffer-p (current-buffer))
+      (personal/agent-leave)
+    (let* ((dir (agent-shell-cwd))
+           (buf (car (personal/agent--buffers-for dir))))
+      (if buf (personal/agent--show buf) (personal/agent-start dir)))))
+
+(defun personal/agent-switch ()
+  "Pick any agent shell and show it."
+  (interactive)
+  (require 'agent-shell)
+  (let* ((bufs (agent-shell-buffers))
+         (names (mapcar #'buffer-name bufs)))
+    (unless bufs (user-error "No agent shells"))
+    (personal/agent--goto
+     (get-buffer (completing-read "Agent shell: " names nil t)))))
+
+;; Notifications, modeline and refreshing the list on shell events.
+(defvar personal/agent-list-buffer "*Agent Sessions*")
+(defvar personal/agent--refresh-timer nil)
+
+(defun personal/agent--project-name (buf)
+  (let ((dir (personal/agent--dir buf)))
+    (if (string-prefix-p personal/worktree-root dir)
+        (personal/worktree--workspace-name dir)
+      (file-name-nondirectory (directory-file-name dir)))))
+
+(defun personal/agent--changed ()
+  "Update the modeline and (debounced) the session list."
+  (force-mode-line-update t)
+  (unless personal/agent--refresh-timer
+    (setq personal/agent--refresh-timer
+          (run-at-time 0.2 nil
+                       (lambda ()
+                         (setq personal/agent--refresh-timer nil)
+                         (when-let* ((b (get-buffer personal/agent-list-buffer)))
+                           (with-current-buffer b (tabulated-list-revert))))))))
+
+(defun personal/agent--notify (buf message)
+  (unless (eq (window-buffer (selected-window)) buf)
+    (condition-case err
+        (progn (require 'notifications)
+               (notifications-notify :title (format "Agent: %s" (personal/agent--project-name buf))
+                                     :body message :app-name "Emacs"))
+      (error (message "Agent notification failed: %S" err)))))
+
+(defun personal/agent--on-event (buf event)
+  (when (buffer-live-p buf)
+    (pcase (map-elt event :event)
+      ((or 'agent-message-chunk 'tool-call-update) nil)
+      ((or 'permission-request 'elicitation-request)
+       (personal/agent--notify buf "Needs your input")
+       (personal/agent--changed))
+      ('turn-complete
+       (unless (eq (window-buffer (selected-window)) buf)
+         (with-current-buffer buf (setq personal/agent--unseen t)))
+       (personal/agent--notify buf "Finished")
+       (personal/agent--changed))
+      (_ (personal/agent--changed)))))
+
+(defun personal/agent--setup-buffer ()
+  "Hook for `agent-shell-mode-hook': workspace membership and event subscription."
+  (when (bound-and-true-p persp-mode)
+    (persp-add-buffer (current-buffer)))
+  (let ((buf (current-buffer)))
+    (agent-shell-subscribe-to :shell-buffer buf
+                              :on-event (lambda (event) (personal/agent--on-event buf event)))))
+
+(add-hook 'window-selection-change-functions
+          (lambda (_)
+            (let ((b (window-buffer)))
+              (when (and (personal/agent--buffer-p b) (buffer-local-value 'personal/agent--unseen b))
+                (with-current-buffer b (setq personal/agent--unseen nil))
+                (personal/agent--changed)))))
+
+(after! agent-shell
+  (setq agent-shell-session-strategy 'new
+        ;; replay the whole conversation on resume (default `minimal' shows only the title)
+        agent-shell-session-restore-verbosity 'full
+        agent-shell-display-action '(personal/agent--display)
+        agent-shell-file-display-action '(personal/agent--display-file))
+  ;; Evil's insert-state C-v is quoted-insert; use it to paste (images too) like a GUI app.
+  (evil-define-key* 'insert agent-shell-mode-map (kbd "C-v") #'agent-shell-yank-dwim)
+  (add-hook 'agent-shell-mode-hook #'personal/agent--setup-buffer)
+  (add-hook 'kill-buffer-hook
+            (defun personal/agent--killed ()
+              (when (derived-mode-p 'agent-shell-mode)
+                (run-at-time 0.1 nil #'personal/agent--changed)))))
+
+(defun personal/agent-modeline ()
+  "\" agent[N]\" plus counts of blocked (!), busy (*) and unseen finished (+) shells."
+  (let ((bufs (and (featurep 'agent-shell) (agent-shell-buffers))))
+    (when bufs
+      (let* ((st (mapcar #'personal/agent--status bufs))
+             (blocked (seq-count (lambda (s) (eq s 'blocked)) st))
+             (busy (seq-count (lambda (s) (eq s 'busy)) st))
+             (done (seq-count (lambda (s) (eq s 'done)) st)))
+        (propertize (format " agent[%d]%s%s%s" (length bufs)
+                            (if (> blocked 0) (format " !%d" blocked) "")
+                            (if (> busy 0) (format " *%d" busy) "")
+                            (if (> done 0) (format " +%d" done) ""))
+                    'face (cond ((> blocked 0) 'error) ((> busy 0) 'warning)
+                                ((> done 0) 'success) (t 'shadow)))))))
+(after! doom-modeline
+  (add-to-list 'global-mode-string '(:eval (personal/agent-modeline)) t))
+
+(defun personal/agent-next-waiting ()
+  "Go to the next shell that needs input, else the next that finished unseen."
+  (interactive)
+  (require 'agent-shell)
+  (let* ((bufs (seq-remove (lambda (b) (eq b (current-buffer))) (agent-shell-buffers)))
+         (target (or (seq-find (lambda (b) (eq (personal/agent--status b) 'blocked)) bufs)
+                     (seq-find (lambda (b) (eq (personal/agent--status b) 'done)) bufs))))
+    (if target (personal/agent--goto target) (message "No agent needs attention"))))
+
+;; Overview of all agent shells.  RET go, x kill, gr refresh, q quit.
+(define-derived-mode personal/agent-list-mode tabulated-list-mode "Agent-Sessions"
+  "Major mode listing all agent shell sessions."
+  (setq tabulated-list-format [("Project" 28 t) ("Status" 8 t) ("Title" 44 t) ("Directory" 0 t)]
         tabulated-list-padding 1
         tabulated-list-sort-key '("Project"))
-  (add-hook 'tabulated-list-revert-hook #'personal/claude-list--refresh nil t)
-  (add-hook 'post-command-hook #'personal/claude-list--auto-preview nil t)
-  (add-hook 'kill-buffer-hook #'personal/claude-list--close-preview nil t)
+  (add-hook 'tabulated-list-revert-hook #'personal/agent-list--refresh nil t)
   (tabulated-list-init-header))
 
-(defvar-local personal/claude-list--previewed nil)
-
-(defun personal/claude-list--auto-preview ()
-  "Preview the session at point when the cursor moves to a different one."
-  (let ((buf (tabulated-list-get-id)))
-    (when (and (buffer-live-p buf) (not (eq buf personal/claude-list--previewed)))
-      (setq personal/claude-list--previewed buf)
-      (personal/claude-list-preview))))
-
-(defun personal/claude-list--refresh ()
-  (setq personal/claude-list--previewed nil) ; let auto-preview reopen after refresh/kill
+(defun personal/agent-list--refresh ()
   (setq tabulated-list-entries
         (mapcar
          (lambda (buf)
-           (let* ((name (buffer-name buf))
-                  (dir (or (claude-code--extract-directory-from-buffer-name name) ""))
-                  (inst (or (claude-code--extract-instance-name-from-buffer-name name) "default"))
-                  (busy (buffer-local-value 'ghostel--spinner-active buf)))
-             (list buf (vector (file-name-nondirectory (directory-file-name dir))
-                               inst
-                               (if busy (propertize "busy" 'face 'warning) "idle")
-                               (abbreviate-file-name dir)))))
-         (claude-code--find-all-claude-buffers))))
+           (list buf (vector (personal/agent--project-name buf)
+                             (personal/agent--status-string buf)
+                             (or (ignore-errors
+                                   (map-nested-elt (buffer-local-value 'agent-shell--state buf)
+                                                   '(:session :title)))
+                                 "")
+                             (abbreviate-file-name (personal/agent--dir buf)))))
+         (agent-shell-buffers))))
 
-(defun personal/claude-list--buffer ()
+(defun personal/agent-list--buffer ()
   (or (tabulated-list-get-id) (user-error "No session on this line")))
 
-(defvar personal/claude-list--preview-window nil)
-
-(defun personal/claude-list-switch ()
-  "Go to the workspace holding the session at point and show it at the bottom."
+(defun personal/agent-list-switch ()
+  "Go to the workspace of the session at point and show it."
   (interactive)
-  (let* ((buf (personal/claude-list--buffer))
-         (persp (and (bound-and-true-p persp-mode)
-                     (seq-find (lambda (p) (persp-contain-buffer-p buf p))
-                               (persp-persps))))
-         (ws (and persp (safe-persp-name persp))))
+  (let ((buf (personal/agent-list--buffer)))
     (quit-window t)
-    (when (and ws (not (equal ws (+workspace-current-name))))
-      (+workspace-switch ws))
-    (let ((win (or (get-buffer-window buf)
-                   (funcall claude-code-display-window-fn buf))))
-      (select-window win))))
+    (personal/agent--goto buf)))
 
-(defun personal/claude-list-preview ()
-  "Show the session at point in a right side window without selecting it."
+(defun personal/agent-list-kill ()
   (interactive)
-  (setq personal/claude-list--preview-window
-        (display-buffer (personal/claude-list--buffer)
-                        '(display-buffer-in-side-window
-                          (side . right) (window-width . 0.5) (slot . 0)))))
-
-(defun personal/claude-list--close-preview ()
-  (when (window-live-p personal/claude-list--preview-window)
-    (ignore-errors (delete-window personal/claude-list--preview-window)))
-  (setq personal/claude-list--preview-window nil
-        personal/claude-list--previewed nil))
-
-(defun personal/claude-list-quit ()
-  (interactive)
-  (quit-window t))
-
-(defun personal/claude-list-kill ()
-  (interactive)
-  (let ((buf (personal/claude-list--buffer)))
+  (let ((buf (personal/agent-list--buffer)))
     (when (y-or-n-p (format "Kill %s? " (buffer-name buf)))
-      (claude-code--kill-buffer buf)
-      (when (buffer-live-p buf) (kill-buffer buf))
+      (kill-buffer buf)
       (tabulated-list-revert))))
 
-(define-key personal/claude-list-mode-map (kbd "RET") #'personal/claude-list-switch)
-(define-key personal/claude-list-mode-map (kbd "p") #'personal/claude-list-preview)
-(define-key personal/claude-list-mode-map (kbd "q") #'personal/claude-list-quit)
-(define-key personal/claude-list-mode-map (kbd "x") #'personal/claude-list-kill)
+(define-key personal/agent-list-mode-map (kbd "RET") #'personal/agent-list-switch)
+(define-key personal/agent-list-mode-map (kbd "x") #'personal/agent-list-kill)
+(define-key personal/agent-list-mode-map (kbd "q") #'quit-window)
 (after! evil
-  (evil-define-key 'normal personal/claude-list-mode-map
-    (kbd "RET") #'personal/claude-list-switch
-    "p" #'personal/claude-list-preview
-    "x" #'personal/claude-list-kill
+  (evil-define-key 'normal personal/agent-list-mode-map
+    (kbd "RET") #'personal/agent-list-switch
+    "x" #'personal/agent-list-kill
     "gr" #'tabulated-list-revert
-    "q" #'personal/claude-list-quit))
+    "q" #'quit-window))
 
-(defun personal/claude-list ()
-  "List all Claude sessions."
+(defun personal/agent-list ()
+  "List all agent shell sessions."
   (interactive)
-  (require 'claude-code)
-  (with-current-buffer (get-buffer-create personal/claude-list-buffer)
-    (personal/claude-list-mode)
-    (personal/claude-list--refresh)
+  (require 'agent-shell)
+  (with-current-buffer (get-buffer-create personal/agent-list-buffer)
+    (personal/agent-list-mode)
+    (personal/agent-list--refresh)
     (tabulated-list-print))
-  (pop-to-buffer personal/claude-list-buffer))
+  (pop-to-buffer personal/agent-list-buffer))
 
-(map! :leader :desc "Claude: list sessions" "l b" #'personal/claude-list)
+(map! :leader
+      (:prefix ("l" . "llm")
+       :desc "Agent: toggle/start"     "l" #'personal/agent-toggle
+       :desc "Agent: toggle"           "t" #'personal/agent-toggle
+       :desc "Agent: new session"      "a" #'personal/agent-start
+       :desc "Agent: new (no context)" "A" #'personal/agent-start-bare
+       :desc "Agent: resume session"   "r" #'personal/agent-resume
+       :desc "Agent: clear (restart)"  "c" #'agent-shell-restart
+       :desc "Agent: switch session"   "s" #'personal/agent-switch
+       :desc "Agent: list sessions"    "b" #'personal/agent-list
+       :desc "Agent: next waiting"     "n" #'personal/agent-next-waiting
+       :desc "Agent: send region"      "e" #'agent-shell-send-region
+       :desc "Agent: send file"        "f" #'agent-shell-send-file
+       :desc "Agent: new worktree"     "w" #'personal/agent-worktree-new
+       :desc "Agent: remove worktree"  "W" #'personal/agent-worktree-remove
+       :desc "Agent: list worktrees"   "g" #'personal/worktree-list))
 
-;; Modeline: "claude[N]" with a "*" while any session shows ghostel progress.
-(defun personal/claude-modeline ()
-  (let ((bufs (and (featurep 'claude-code) (claude-code--find-all-claude-buffers))))
-    (when bufs
-      (let ((busy (seq-some (lambda (b) (buffer-local-value 'ghostel--spinner-active b)) bufs)))
-        (propertize (format " claude[%d]%s" (length bufs) (if busy "*" ""))
-                    'face (if busy 'warning 'shadow))))))
-(after! doom-modeline
-  (add-to-list 'global-mode-string '(:eval (personal/claude-modeline)) t))
-
-;; Worktree workflow: one git worktree + one Doom workspace + one Claude
+;; Worktree workflow: one git worktree + one Doom workspace + one agent
 ;; session per task. Worktrees live outside the repo (and outside the
 ;; projectile search path) in ~/data/worktrees/<repo>/<branch>/.
 (defconst personal/worktree-root (expand-file-name "~/data/worktrees/"))
@@ -237,8 +339,8 @@
             (file-name-nondirectory (directory-file-name (file-name-directory dir)))
             (file-name-nondirectory dir))))
 
-(defun personal/claude-worktree-new (branch)
-  "Create a git worktree for BRANCH, open it in its own workspace and start Claude."
+(defun personal/agent-worktree-new (branch)
+  "Create a git worktree for BRANCH, open it in its own workspace and start an agent shell."
   (interactive
    (list (let ((default-directory (personal/worktree--main-repo)))
            (replace-regexp-in-string
@@ -279,10 +381,10 @@
     (+workspace-switch (personal/worktree--workspace-name dir) t)
     (let ((default-directory dir))
       (dired dir)
-      (claude-code '(4)))))
+      (personal/agent-start dir))))
 
-(defun personal/claude-worktree-remove ()
-  "Remove a worktree under `personal/worktree-root': Claude buffer, workspace, worktree."
+(defun personal/agent-worktree-remove ()
+  "Remove a worktree under `personal/worktree-root': Agent buffer, workspace, worktree."
   (interactive)
   (let* ((main (personal/worktree--main-repo))
          (default-directory main)
@@ -296,19 +398,19 @@
       (personal/worktree--remove dir))))
 
 (defun personal/worktree--remove (dir)
-  "Remove worktree DIR: git worktree, Claude buffers and Doom workspace.
+  "Remove worktree DIR: git worktree, Agent buffers and Doom workspace.
 Asks for a forced removal if git refuses (e.g. dirty tree)."
   (let ((ws (personal/worktree--workspace-name dir))
         (default-directory (let ((default-directory dir)) (personal/worktree--main-repo))))
-    ;; Remove the worktree first: if it is kept, the Claude session must survive.
+    ;; Remove the worktree first: if it is kept, the agent session must survive.
     (with-temp-buffer
       (unless (zerop (call-process "git" nil t nil "worktree" "remove" dir))
         (if (yes-or-no-p (format "%s\nForce removal? " (string-trim (buffer-string))))
             (call-process "git" nil nil nil "worktree" "remove" "--force" dir)
           (user-error "Worktree kept"))))
-    (require 'claude-code)
-    (dolist (buf (claude-code--find-claude-buffers-for-directory dir))
-      (claude-code--kill-buffer buf))
+    (require 'agent-shell)
+    (dolist (buf (personal/agent--buffers-for dir))
+      (kill-buffer buf))
     (when (+workspace-exists-p ws)
       (+workspace/kill ws))
     (message "Removed worktree %s" dir)))
@@ -316,7 +418,7 @@ Asks for a forced removal if git refuses (e.g. dirty tree)."
 ;; Overview of all worktrees under `personal/worktree-root'.
 ;; RET switch, d delete, D delete all final (MR merged/closed), f/F fetch
 ;; (at point / all), m magit-status, gr refresh (incl. MR lookup), q quit.
-(defvar personal/worktree-list-buffer "*Claude Worktrees*")
+(defvar personal/worktree-list-buffer "*Agent Worktrees*")
 (defvar personal/worktree-list--rows nil "Alist of (DIR . INFO-plist), see `personal/worktree--info'.")
 (defvar personal/worktree-list--mr (make-hash-table :test 'equal)
   "DIR -> MR plist (:state :iid :url), `none', `error' or `loading'.")
@@ -398,19 +500,19 @@ Asks for a forced removal if git refuses (e.g. dirty tree)."
                       ((> behind 0) (propertize (format "behind %d" behind) 'face 'warning))
                       ((> ahead 0) (format "ahead %d" ahead))
                       (t "up to date")))
-            (claude (length (and (featurep 'claude-code)
-                                 (claude-code--find-claude-buffers-for-directory dir)))))
+            (agent (and (featurep 'agent-shell)
+                        (car (personal/agent--buffers-for dir)))))
        (list dir (vector (plist-get i :repo) (plist-get i :branch) state mr-col vs
                          (concat (if (plist-get i :dirty) "dirty" "")
                                  (if (> (or (plist-get i :unpushed) 0) 0)
                                      (format " ↑%d unpushed" (plist-get i :unpushed)) ""))
-                         (if (> claude 0) "yes" "")))))
+                         (if agent (personal/agent--status-string agent) "")))))
    personal/worktree-list--rows))
 
-(define-derived-mode personal/worktree-list-mode tabulated-list-mode "Claude-Worktrees"
+(define-derived-mode personal/worktree-list-mode tabulated-list-mode "Agent-Worktrees"
   "Major mode listing all worktrees under `personal/worktree-root'."
   (setq tabulated-list-format [("Repo" 22 t) ("Branch" 36 t) ("State" 7 t) ("MR" 12 t)
-                               ("vs origin/master" 22 t) ("Local" 18 t) ("Claude" 0 t)]
+                               ("vs origin/master" 22 t) ("Local" 18 t) ("Agent" 0 t)]
         tabulated-list-padding 1
         tabulated-list-sort-key '("Repo"))
   (add-hook 'tabulated-list-revert-hook
@@ -513,7 +615,7 @@ Asks for a forced removal if git refuses (e.g. dirty tree)."
                      "branch never pushed")))))
 
 (defun personal/worktree-list-delete ()
-  "Delete the worktree at point (folder, Claude buffer, workspace); keeps the branch."
+  "Delete the worktree at point (folder, Agent buffer, workspace); keeps the branch."
   (interactive)
   (let* ((dir (personal/worktree-list--dir))
          (warn (personal/worktree-list--warnings dir)))
@@ -656,7 +758,7 @@ Aborts the rebase if it fails."
 (defun personal/worktree-list ()
   "List all worktrees with their git/MR state."
   (interactive)
-  (require 'claude-code)
+  (require 'agent-shell)
   (with-current-buffer (get-buffer-create personal/worktree-list-buffer)
     (personal/worktree-list-mode)
     (personal/worktree-list--collect)
@@ -666,6 +768,4 @@ Aborts the rebase if it fails."
   (personal/worktree-list-refresh)
   (message "? for menu"))
 
-(map! :leader :desc "Claude: list worktrees" "l g" #'personal/worktree-list)
-
-(provide 'claude)
+(provide 'agent)
