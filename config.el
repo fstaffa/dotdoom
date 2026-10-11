@@ -427,11 +427,6 @@ Fetching is done synchronously."
               (require 'orderless)
               (setq-local completion-styles '(orderless basic)))))
 
-        ghostel-module-auto-install 'download)
-  :config
-  (setq ghostel-progress-function #'ghostel-spinner-progress))
-
-;; Doom's :term ghostel module provides evil-ghostel and `SPC o t' / `SPC o T'.
 ;; Keep the native module outside the straight tree so `doom sync' doesn't wipe it.
 (use-package! ghostel
   :defer t
@@ -442,6 +437,11 @@ Fetching is done synchronously."
   (if (null lab-token)
       (setq lab-token (auth-source-pick-first-password :host "gitlab.com/api"))))
 
+        ghostel-module-auto-install 'download)
+  :config
+  (setq ghostel-progress-function #'ghostel-spinner-progress))
+
+;; Doom's :term ghostel module provides evil-ghostel and `SPC o t' / `SPC o T'.
 (use-package! lab
   :config (setq lab-host "https://gitlab.com"
 
