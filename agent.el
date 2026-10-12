@@ -133,6 +133,55 @@
 
 (defvar agent-shell-context-sources)
 
+;; Backend switch: Claude subscription (login) or AWS Bedrock.  Only works because the
+;; Bedrock variables are NOT in ~/.claude/settings.json (its "env" would override ours);
+;; they live in work.zsh in the nix config and reach Emacs via `doom env' (re-run it after
+;; changing them).  Bedrock = inherit that environment, subscription = blank it.
+;; Applies to shells started afterwards.
+(defvar personal/agent-backend 'bedrock
+  "Backend for new agent shells: `bedrock' or `subscription'.")
+
+(defconst personal/agent--subscription-env
+  '("CLAUDE_CODE_USE_BEDROCK="
+    "ANTHROPIC_DEFAULT_OPUS_MODEL="
+    "ANTHROPIC_DEFAULT_SONNET_MODEL="
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL="
+    "ANTHROPIC_SMALL_FAST_MODEL=")
+  "Blank any Bedrock variables inherited from Emacs's environment.")
+
+(defun personal/agent--oauth-token ()
+  "Claude subscription OAuth token (`claude setup-token') from auth-source, or nil.
+Store it as an auth-source entry with host `claude-code-oauth'."
+  (require 'auth-source)
+  (auth-source-pick-first-password :host "claude-code-oauth"))
+
+(defun personal/agent-set-backend (backend)
+  "Set BACKEND (`bedrock' or `subscription') for agent shells started from now on."
+  (interactive
+   (list (intern (completing-read "Agent backend: " '("bedrock" "subscription") nil t))))
+  (require 'agent-shell)
+  (setq personal/agent-backend backend
+        agent-shell-anthropic-claude-environment
+        (unless (eq backend 'bedrock) personal/agent--subscription-env)
+        ;; The OAuth token is more reliable than the keychain login for the ACP agent;
+        ;; fall back to the login when no token is stored.
+        agent-shell-anthropic-authentication
+        (if-let* (((not (eq backend 'bedrock)))
+                  (token (personal/agent--oauth-token)))
+            (agent-shell-anthropic-make-authentication :oauth token)
+          (agent-shell-anthropic-make-authentication :login t)))
+  (message "Agent backend: %s (applies to new shells)" backend)
+  (when (and (personal/agent--buffer-p (current-buffer))
+             (not (eq backend personal/agent--session-backend))
+             (y-or-n-p (format "Restart this session with %s (kills it, loses context)? " backend)))
+    (agent-shell-restart)))
+
+(defun personal/agent-toggle-backend ()
+  "Switch between Bedrock and subscription for new agent shells."
+  (interactive)
+  (personal/agent-set-backend
+   (if (eq personal/agent-backend 'bedrock) 'subscription 'bedrock)))
+
 (defun personal/agent-start (&optional dir session-strategy)
   "Start a Claude agent shell in DIR (default: current project).
 SESSION-STRATEGY overrides `agent-shell-session-strategy' (e.g. `prompt' to resume)."
@@ -262,8 +311,12 @@ resumed session)."
        (personal/agent--changed))
       (_ (personal/agent--changed)))))
 
+(defvar-local personal/agent--session-backend nil
+  "Backend (`bedrock' or `subscription') the shell in this buffer was started with.")
+
 (defun personal/agent--setup-buffer ()
   "Hook for `agent-shell-mode-hook': workspace membership and event subscription."
+  (setq personal/agent--session-backend personal/agent-backend)
   (when (bound-and-true-p persp-mode)
     (persp-add-buffer (current-buffer)))
   (let ((buf (current-buffer)))
@@ -321,8 +374,15 @@ resumed session)."
                             (if (> done 0) (format " +%d" done) ""))
                     'face (cond ((> blocked 0) 'error) ((> busy 0) 'warning)
                                 ((> done 0) 'success) (t 'shadow)))))))
+(defun personal/agent-modeline-backend ()
+  "Backend of the agent shell in the current buffer, for the modeline."
+  (when (and (derived-mode-p 'agent-shell-mode) personal/agent--session-backend)
+    (propertize (format " [%s]" personal/agent--session-backend)
+                'face (if (eq personal/agent--session-backend 'bedrock) 'warning 'success)
+                'help-echo "Backend this session was started with")))
 (after! doom-modeline
-  (add-to-list 'global-mode-string '(:eval (personal/agent-modeline)) t))
+  (add-to-list 'global-mode-string '(:eval (personal/agent-modeline)) t)
+  (add-to-list 'global-mode-string '(:eval (personal/agent-modeline-backend)) t))
 
 (defun personal/agent-next-waiting ()
   "Go to the next shell that needs input, else the next that finished unseen."
@@ -360,7 +420,7 @@ resumed session)."
   "Major mode listing all agent shell sessions."
   (setq tabulated-list-format
         (vector '("" 1 nil) '("Project" 22 t) '("Status" 8 personal/agent-list--status<)
-                '("Mode" 12 t) '("Model" 14 t) '("Ctx" 4 t :right-align t)
+                '("Mode" 12 t) '("Model" 14 t) '("Backend" 7 t) '("Ctx" 4 t :right-align t)
                 '("Perm" 4 t :right-align t) '("Age" 5 t :right-align t)
                 '("Title" 30 t) '("Last reply" 44 nil) '("Directory" 0 t))
         tabulated-list-padding 1
@@ -400,6 +460,7 @@ resumed session)."
                          (personal/agent--status-string buf)
                          (or (ignore-errors (agent-shell-get-mode-name state)) "")
                          (or (ignore-errors (agent-shell-get-model-name state)) "")
+                         (symbol-name (or (buffer-local-value 'personal/agent--session-backend buf) '-))
                          (if (and (numberp used) (numberp size) (> size 0))
                              (format "%d%%" (round (* 100.0 used) size))
                              "")
@@ -644,6 +705,8 @@ session window."
        :desc "Agent: fork session"     "F" #'agent-shell-fork
        :desc "Agent: copy last message" "y" #'personal/agent-copy-last-message
        :desc "Agent: open transcript"  "o" #'agent-shell-open-transcript
+       :desc "Agent: toggle backend"   "B" #'personal/agent-toggle-backend
+       :desc "Agent: set backend"      "k" #'personal/agent-set-backend
        :desc "Agent: help menu"        "?" #'agent-shell-help-menu))
 
 ;; Worktree workflow: one git worktree + one Doom workspace + one agent

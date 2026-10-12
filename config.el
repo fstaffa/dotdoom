@@ -788,3 +788,8 @@ Fetching is done synchronously."
     (+workspace-switch "doom" t)))
 (advice-add 'doom/find-file-in-private-config :before #'personal/switch-to-doom-workspace)
 (advice-add 'doom/open-private-config :before #'personal/switch-to-doom-workspace)
+
+;; Emacs 30 aborts in bidi_resolve_explicit during redisplay (crashes 2026-10-12); no RTL text needed.
+(setq-default bidi-display-reordering nil
+              bidi-paragraph-direction 'left-to-right)
+(setq bidi-inhibit-bpa t)
