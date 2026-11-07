@@ -164,6 +164,10 @@ In config.el:
 - LSP and tree-sitter support
 - Home-manager helper function
 
+### GDScript / Godot
+- Doom `(gdscript +lsp +tree-sitter)` in `init.el`: `gdscript-ts-mode`, lsp-mode against Godot's built-in LSP (port 6005, the Godot editor must be running on the project), `gdformat` formatter. Godot 4 debugging via dap-mode (DAP port 6006), not configured yet
+- Godot side: Editor Settings > Text Editor > External, exec path `emacsclient`, flags `-n +{line}:{col} {file}`
+
 ### Emacs Lisp
 - Lispy mode for structural editing
 - Exercism integration with test runner
